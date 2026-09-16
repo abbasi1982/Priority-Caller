@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.PriorityRinger" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="Theme.PriorityRinger.Alert" parent="Theme.PriorityRinger">
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowBackground">@color/alert_window_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+</resources>

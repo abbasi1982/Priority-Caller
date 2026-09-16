@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup rules for Android 11 (API 30) — Architecture.md § 16.
+
+  Priority contacts and the audit log are the two things this app stores that
+  describe who calls the user and when, and § 16 requires contacts and call
+  numbers to stay on-device. They live in the same Room database as the app
+  settings, so the exclusion is necessarily database-wide: there is no file
+  granularity that would let settings be backed up while the other two are not.
+  That is a deliberate trade — a backed-up volume percentage is worth nothing
+  next to a copy of a family's priority-caller list sitting in cloud storage.
+
+  IMPORTANT for whoever owns `data/`: the path below must match the Room
+  database name passed to `Room.databaseBuilder`. If that name changes, this
+  file and `data_extraction_rules.xml` must change with it, or the exclusion
+  silently stops applying. The most robust belt-and-braces measure is
+  `android:allowBackup="false"` on <application> in the manifest.
+-->
+<full-backup-content>
+    <exclude domain="database" path="priority_ringer.db" />
+    <exclude domain="database" path="priority_ringer.db-wal" />
+    <exclude domain="database" path="priority_ringer.db-shm" />
+    <exclude domain="database" path="priority_ringer.db-journal" />
+</full-backup-content>

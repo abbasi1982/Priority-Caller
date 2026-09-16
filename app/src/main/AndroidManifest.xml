@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Architecture.md § 5.1 — the PHONE_STATE broadcast is the primary
+      detection path. READ_CALL_LOG is what makes EXTRA_INCOMING_NUMBER
+      present at all on Android 9+; without it no caller can be identified
+      and the app is inert (§ A.5), not merely degraded.
+    -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+
+    <!-- Optional (FR1). The system contact picker works without it. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!--
+      Special access, granted from Settings rather than a runtime dialog.
+      Gates every DND change, and also gates ringer/volume changes while DND
+      is active (FR3, FR4).
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+
+    <!-- FR5 alert. On API 34+ full-screen intent additionally needs a user allowance. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!--
+      Deliberately absent: no INTERNET. The audit log and contacts never leave
+      the device (§ 16), and having no network permission makes that
+      verifiable rather than merely promised.
+    -->
+
+    <application
+        android:name=".PriorityRingerApp"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PriorityRinger"
+        tools:targetApi="34">
+
+        <activity
+            android:name=".presentation.MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.PriorityRinger">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Escalation alert (FR5, § 8). Not exported: it is only ever started by
+          this app's own full-screen intent. showWhenLocked/turnScreenOn are
+          what make it useful on a phone face-down on a bedside table.
+        -->
+        <activity
+            android:name=".presentation.PriorityAlertActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:showOnLockScreen="true"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.PriorityRinger.Alert"
+            android:turnScreenOn="true" />
+
+        <!--
+          exported="true" is required for the system to deliver PHONE_STATE to
+          a manifest-registered receiver. It carries no custom action, so
+          nothing app-specific is exposed by it.
+        -->
+        <receiver
+            android:name=".service.PhoneStateReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.PHONE_STATE" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          WorkManager is configured in code via Configuration.Provider (for the
+          Hilt worker factory), so the default on-startup initializer must be
+          removed or it races with ours.
+        -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
+    </application>
+
+</manifest>

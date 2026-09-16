@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31) replacement for backup_rules.xml — Architecture.md § 16.
+
+  Same reasoning: the Room database holds the priority-contact list and the
+  audit log, neither of which may leave the device, and app settings share it.
+  Both transports are covered — `device-transfer` matters as much as
+  `cloud-backup`, since a direct phone-to-phone transfer would otherwise copy
+  the same data onto a device the user may not control.
+
+  Keep the paths in step with the Room database name chosen in `data/`.
+-->
+<data-extraction-rules>
+
+    <cloud-backup disableIfNoEncryptionCapabilities="true">
+        <exclude domain="database" path="priority_ringer.db" />
+        <exclude domain="database" path="priority_ringer.db-wal" />
+        <exclude domain="database" path="priority_ringer.db-shm" />
+        <exclude domain="database" path="priority_ringer.db-journal" />
+    </cloud-backup>
+
+    <device-transfer>
+        <exclude domain="database" path="priority_ringer.db" />
+        <exclude domain="database" path="priority_ringer.db-wal" />
+        <exclude domain="database" path="priority_ringer.db-shm" />
+        <exclude domain="database" path="priority_ringer.db-journal" />
+    </device-transfer>
+
+</data-extraction-rules>

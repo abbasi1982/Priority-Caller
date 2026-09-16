@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Compose hierarchy carries the real Material 3 palette (see
+  presentation/theme/Theme.kt). These XML themes exist only to give the window
+  a correct background and no action bar before the first frame, so there is no
+  white flash into a dark UI. The parent is a platform theme deliberately: this
+  module has no Material Components (View) dependency.
+-->
+<resources>
+
+    <style name="Theme.PriorityRinger" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+    <!--
+      Full-screen escalation alert (Architecture.md § 8). Same palette, but
+      excluded from the recents-style window animation so it appears instantly
+      on a locked screen.
+    -->
+    <style name="Theme.PriorityRinger.Alert" parent="Theme.PriorityRinger">
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowBackground">@color/alert_window_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+</resources>

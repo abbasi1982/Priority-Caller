@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  All user-facing copy. Architecture.md § 17.3 is a hard constraint: nothing
+  here may claim that calls "always" ring through Do Not Disturb or Silent.
+  Where the app cannot promise something, the string says so plainly.
+-->
+<resources>
+
+    <string name="app_name">Priority Caller</string>
+
+    <!-- ===================== Navigation / screens ===================== -->
+    <string name="nav_dashboard">Status</string>
+    <string name="nav_contacts">Contacts</string>
+    <string name="nav_permissions">Permissions</string>
+    <string name="nav_audit">Log</string>
+    <string name="nav_settings">Settings</string>
+
+    <string name="screen_dashboard">Status</string>
+    <string name="screen_contacts">Priority contacts</string>
+    <string name="screen_add_contact">Add priority contact</string>
+    <string name="screen_permissions">Permissions</string>
+    <string name="screen_audit">Activity log</string>
+    <string name="screen_settings">Settings</string>
+    <string name="screen_test_mode">Test mode</string>
+
+    <!-- ===================== Shared actions ===================== -->
+    <string name="action_back">Back</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_dismiss">Dismiss</string>
+    <string name="action_grant">Grant permission</string>
+    <string name="action_open_dnd_access">Open Do Not Disturb access</string>
+    <string name="action_open_full_screen_settings">Open full-screen notification settings</string>
+    <string name="action_view_audit_log">View activity log</string>
+    <string name="action_decrease">Decrease %1$s</string>
+    <string name="action_increase">Increase %1$s</string>
+
+    <string name="cd_consequence">What stops working</string>
+
+    <!-- ===================== Shared values ===================== -->
+    <string name="value_yes">Yes</string>
+    <string name="value_no">No</string>
+    <string name="value_percent">%1$d%%</string>
+    <string name="value_seconds">%1$d seconds</string>
+    <string name="value_applied">Applied</string>
+    <string name="value_not_attempted">Not attempted</string>
+    <string name="value_volume_of_max">%1$d of %2$d (%3$d%%)</string>
+    <string name="value_api">Android API %1$d, app targets %2$d</string>
+    <string name="value_no_already_pending">No — an earlier restore is still pending</string>
+
+    <string name="label_ringer_mode">Ringer mode</string>
+    <string name="label_interruption_filter">Do Not Disturb filter</string>
+    <string name="label_ring_volume">Ring volume</string>
+    <string name="label_volume_fixed">Volume is fixed by the device</string>
+    <string name="label_api_level">Android version</string>
+    <string name="label_contact">Contact</string>
+    <string name="label_escalated">Escalated</string>
+    <string name="label_do_not_disturb">Do Not Disturb</string>
+    <string name="label_full_screen_alert">Full-screen alert</string>
+    <string name="label_snapshot_saved">Previous settings saved</string>
+
+    <!-- ===================== Ringer / filter ===================== -->
+    <string name="ringer_mode_silent">Silent</string>
+    <string name="ringer_mode_vibrate">Vibrate</string>
+    <string name="ringer_mode_normal">Normal</string>
+    <string name="ringer_mode_unknown">Unknown</string>
+
+    <string name="filter_all">Off — everything comes through</string>
+    <string name="filter_priority">Priority only</string>
+    <string name="filter_alarms">Alarms only</string>
+    <string name="filter_none">Total silence</string>
+    <string name="filter_unknown">Unknown</string>
+
+    <!-- ===================== Capabilities ===================== -->
+    <string name="capability_read_phone_state">Phone state</string>
+    <string name="capability_read_call_log">Call log</string>
+    <string name="capability_read_contacts">Contacts</string>
+    <string name="capability_notification_policy">Do Not Disturb access</string>
+    <string name="capability_post_notifications">Notifications</string>
+    <string name="capability_full_screen_intent">Full-screen notifications</string>
+    <string name="capability_volume_adjustable">Adjustable ring volume</string>
+
+    <string name="capability_read_phone_state_purpose">Lets the app notice that a call is coming in.</string>
+    <string name="capability_read_call_log_purpose">Lets the app see the caller\'s number. On Android 9 and later the number is withheld from apps without this permission, so it is the only way to tell a priority caller from anyone else.</string>
+    <string name="capability_read_contacts_purpose">Lets the app read a number from the contact you pick. You can also type numbers in by hand instead.</string>
+    <string name="capability_notification_policy_purpose">Lets the app ask Do Not Disturb to allow a call through for the length of that call, and put the setting back afterwards.</string>
+    <string name="capability_post_notifications_purpose">Lets the app show the alert for a repeat caller.</string>
+    <string name="capability_full_screen_intent_purpose">Lets the repeat-caller alert take over the screen instead of appearing as a banner.</string>
+    <string name="capability_volume_adjustable_purpose">Whether this device lets an app change the ring volume at all.</string>
+
+    <string name="capability_state_granted">Granted</string>
+    <string name="capability_state_denied">Not granted</string>
+    <string name="capability_state_restricted">Not possible on this device</string>
+    <string name="capability_state_not_required">Not needed on this Android version</string>
+    <string name="capability_required_tag">Essential</string>
+
+    <!-- ===================== Failure reasons ===================== -->
+    <string name="failure_policy_access_denied">Do Not Disturb access not granted</string>
+    <string name="failure_runtime_permission_denied">Permission not granted</string>
+    <string name="failure_security_exception">Blocked by the system</string>
+    <string name="failure_volume_fixed">Volume is fixed on this device</string>
+    <string name="failure_verification_failed">The device did not apply the change</string>
+    <string name="failure_dnd_ineffective">Do Not Disturb still blocked the call</string>
+    <string name="failure_silent_not_overridden">Phone stayed on Silent</string>
+    <string name="failure_number_unavailable">No caller number available</string>
+    <string name="failure_unsupported_api">Not supported on this Android version</string>
+    <string name="failure_nothing_to_do">Nothing to do</string>
+    <string name="failure_unknown">Unknown problem</string>
+
+    <!-- ===================== Audit event types ===================== -->
+    <string name="audit_type_priority_call_detected">Priority call detected</string>
+    <string name="audit_type_dnd_bypass_attempted">Do Not Disturb change attempted</string>
+    <string name="audit_type_ringer_mode_changed">Ringer mode changed</string>
+    <string name="audit_type_volume_changed">Volume changed</string>
+    <string name="audit_type_restoration_completed">Settings restored</string>
+    <string name="audit_type_error">Error</string>
+    <string name="audit_type_number_unavailable">Caller number unavailable</string>
+    <string name="audit_type_dnd_bypass_ineffective">Do Not Disturb change had no effect</string>
+    <string name="audit_type_silent_not_overridden">Silent mode not overridden</string>
+    <string name="audit_type_volume_fixed">Volume fixed by device</string>
+    <string name="audit_type_ringer_change_failed">Ringer change failed</string>
+    <string name="audit_type_volume_change_failed">Volume change failed</string>
+    <string name="audit_type_restoration_failed">Restore failed</string>
+    <string name="audit_type_escalation_triggered">Repeat caller — escalated</string>
+    <string name="audit_type_full_screen_alert_shown">Full-screen alert shown</string>
+    <string name="audit_type_full_screen_alert_fallback">Alert shown as a banner</string>
+    <string name="audit_type_permission_denied">Permission denied</string>
+    <string name="audit_type_stale_restore_recovered">Left-over settings recovered</string>
+    <string name="audit_type_simulation_run">Simulation run</string>
+    <string name="audit_type_contact_added">Contact added</string>
+    <string name="audit_type_contact_removed">Contact removed</string>
+
+    <string name="severity_info">Information</string>
+    <string name="severity_warning">Warning</string>
+    <string name="severity_error">Error</string>
+
+    <!-- ===================== Dashboard: readiness ===================== -->
+    <!--
+      Architecture.md Addendum A.5. INERT and DEGRADED must not read alike:
+      DEGRADED still does something useful, INERT does nothing whatsoever.
+    -->
+    <string name="readiness_armed_title">Priority ringing is active</string>
+    <string name="readiness_armed_body">Everything the app needs has been granted. When an enabled priority contact calls, the app will raise the ring volume, switch out of Vibrate, and ask Do Not Disturb to let the call through — then put all of it back when the call ends. It cannot promise a call will be audible in Silent mode, or through a stricter Do Not Disturb set by you or the device.</string>
+
+    <string name="readiness_degraded_title">Calls are detected, but Do Not Disturb cannot be touched</string>
+    <string name="readiness_degraded_body">The app can see who is calling and can raise the ring volume and switch out of Vibrate. It cannot ask Do Not Disturb to let the call through, because Do Not Disturb access has not been granted. While Do Not Disturb is on, a priority call will be silenced like any other.</string>
+    <string name="readiness_degraded_action">Grant Do Not Disturb access</string>
+
+    <string name="readiness_inert_title">This app is doing nothing</string>
+    <string name="readiness_inert_body">Incoming calls reach the app with no caller number, so no caller can be identified and no priority call can ever be recognised. Nothing will ring differently, for anyone, until the essential permissions are granted.</string>
+    <string name="readiness_inert_emphasis">This is not partial functionality. Nothing happens at all.</string>
+    <string name="readiness_inert_action">Fix this now</string>
+
+    <!-- ===================== Dashboard: rest ===================== -->
+    <string name="banner_restore_failed_title">Your sound settings may not have been put back</string>
+    <string name="banner_dnd_ineffective_title">Do Not Disturb ignored the app</string>
+
+    <string name="dashboard_contacts_title">Priority contacts</string>
+    <string name="dashboard_contacts_enabled">Enabled</string>
+    <string name="dashboard_contacts_count">%1$d of %2$d</string>
+    <string name="dashboard_contacts_none">No priority contacts yet. Nothing will be treated as urgent until you add one.</string>
+    <string name="dashboard_contacts_all_disabled">Every priority contact is switched off, so no call will be treated as urgent.</string>
+    <string name="dashboard_manage_contacts">Manage contacts</string>
+
+    <string name="dashboard_device_state_title">This device right now</string>
+    <string name="dashboard_volume_fixed">This device reports a fixed output volume, so the ring volume cannot be changed by any app. Ringer mode can still be changed.</string>
+
+    <string name="dashboard_last_event_title">Most recent event</string>
+    <string name="dashboard_last_event_none">Nothing has happened yet.</string>
+    <string name="dashboard_view_full_log">View the full log</string>
+    <string name="dashboard_last_attempt_title">Last priority call</string>
+    <string name="dashboard_open_test_mode">Open test mode</string>
+
+    <!-- ===================== Contacts ===================== -->
+    <string name="contacts_add">Add contact</string>
+    <string name="contacts_empty_title">No priority contacts yet</string>
+    <string name="contacts_empty_message">Add the people whose calls should get through. Everyone else is left completely alone — the app will not touch your sound settings for them.</string>
+    <string name="contacts_row_enabled">%1$s · calls are treated as urgent</string>
+    <string name="contacts_row_disabled">%1$s · switched off</string>
+    <string name="contacts_delete_cd">Delete %1$s</string>
+    <string name="contacts_delete_title">Delete this contact?</string>
+    <string name="contacts_delete_message">%1$s will no longer be treated as a priority caller.</string>
+    <string name="contacts_enabled_message">%1$s is now a priority caller</string>
+    <string name="contacts_disabled_message">%1$s is switched off</string>
+    <string name="contacts_removed_message">%1$s removed</string>
+
+    <!-- ===================== Add contact ===================== -->
+    <string name="add_contact_picker_title">Pick from your contacts</string>
+    <string name="add_contact_picker_body">Choose someone from the phone\'s contact list. Only the number you pick is stored.</string>
+    <string name="add_contact_pick_from_device">Choose a contact</string>
+    <string name="add_contact_picker_unreadable_title">That contact\'s number could not be read</string>
+    <string name="add_contact_picker_unreadable_fallback">The app could not read a phone number for that contact. Grant the Contacts permission on the Permissions screen, or type the number in below.</string>
+
+    <string name="add_contact_manual_title">Or type a number</string>
+    <string name="add_contact_name_label">Name</string>
+    <string name="add_contact_name_help">Shown on the alert. If you leave it blank, the number is used.</string>
+    <string name="add_contact_number_label">Phone number</string>
+    <string name="add_contact_number_help">Country code optional. National and international forms of the same number are treated as the same person.</string>
+    <string name="add_contact_error_invalid">That does not look like a phone number the app can match.</string>
+    <string name="add_contact_error_exists">That number is already in your priority list.</string>
+    <string name="add_contact_matching_note">Matching compares the last digits of the number, so a call shown in a different format still matches.</string>
+    <string name="add_contact_save">Save contact</string>
+    <string name="add_contact_saved">Contact added</string>
+
+    <!-- ===================== Permissions ===================== -->
+    <string name="permissions_intro">Each permission below is listed with what the app cannot do without it. Nothing here is hidden behind a tick or a cross.</string>
+    <string name="permissions_footer">These grants can be changed at any time in system Settings. This screen re-checks them every time you open it, so what you see is what the system currently reports.</string>
+    <string name="permissions_denied_message">Permission not granted. The app has updated what it says it can do.</string>
+    <string name="permissions_opened_app_settings">Android will no longer show that request. Opening app settings instead.</string>
+    <string name="permissions_no_settings_screen">This device has no settings screen for that. Look for the app under Settings › Apps.</string>
+
+    <string name="permissions_setup_prompt_title">The app cannot work yet</string>
+    <string name="permissions_setup_prompt_body">An essential permission is missing, so no call is being treated as urgent. The setup walkthrough asks for one permission at a time and explains what each one is for.</string>
+    <string name="permissions_setup_start">Start setup</string>
+    <string name="permissions_setup_skip">Not now</string>
+    <string name="permissions_resume_setup">Continue setup</string>
+    <string name="permissions_step_counter">Step %1$d of %2$d</string>
+    <string name="permissions_step_without_this_required">Without this, the app does nothing</string>
+    <string name="permissions_step_without_this_optional">Without this</string>
+    <string name="permissions_step_show_all">Skip — show the full list</string>
+    <string name="permissions_all_granted">Everything the app can be granted has been granted.</string>
+
+    <!-- ===================== Audit log ===================== -->
+    <string name="audit_entry_count">%1$d entries (newest first)</string>
+    <string name="audit_filter_all">All</string>
+    <string name="audit_clear">Clear log</string>
+    <string name="audit_clear_title">Clear the activity log?</string>
+    <string name="audit_clear_message">Every entry is deleted from this device. Anything that happens afterwards is logged as usual.</string>
+    <string name="audit_clear_confirm">Clear</string>
+    <string name="audit_empty_title">Nothing logged yet</string>
+    <string name="audit_empty_message">Priority calls, sound changes and anything that fails will appear here. Only the last 500 entries are kept.</string>
+    <string name="audit_empty_filtered_title">Nothing of that kind</string>
+    <string name="audit_empty_filtered_message">No entries match the filter you picked.</string>
+    <string name="audit_unexpected">· unexpected</string>
+
+    <!-- ===================== Settings ===================== -->
+    <string name="settings_volume_title">Ring volume for priority calls</string>
+    <string name="settings_volume_body">How loud the ring stream is set when a priority contact calls. The previous volume is put back when the call ends.</string>
+    <string name="settings_volume_floor">The lowest setting is %1$d%%. A priority ringer that cannot be heard would be worse than none at all.</string>
+
+    <string name="settings_escalation_title">Repeat callers</string>
+    <string name="settings_escalation_body">When the same priority contact calls again quickly, the ring goes to maximum and a full-screen alert is shown. Either rule below can trigger it.</string>
+    <string name="settings_escalation_enabled">Escalate repeat callers</string>
+    <string name="settings_escalation_window_a">Rule A — short window</string>
+    <string name="settings_escalation_window_b">Rule B — longer window</string>
+    <string name="settings_escalation_calls">Calls</string>
+    <string name="settings_escalation_minutes">Within (minutes)</string>
+    <string name="settings_escalation_summary">Escalates after %1$d calls in %2$d minutes, or %3$d calls in %4$d minutes.</string>
+
+    <string name="settings_restore_title">Safety restore</string>
+    <string name="settings_restore_body">If the end of a call is never reported, your sound settings are put back after this long anyway. This is what stops the phone being left loud and off Do Not Disturb.</string>
+
+    <string name="settings_dnd_title">How to handle Do Not Disturb</string>
+    <string name="settings_dnd_body">What the app asks Do Not Disturb to do for the length of a priority call.</string>
+    <string name="dnd_strategy_priority_calls">Allow calls through</string>
+    <string name="dnd_strategy_priority_calls_desc">Leaves Do Not Disturb on and asks it to permit calls. The least invasive change to someone else\'s phone, and the default.</string>
+    <string name="dnd_strategy_disable_dnd">Turn Do Not Disturb off for the call</string>
+    <string name="dnd_strategy_disable_dnd_desc">Switches Do Not Disturb off entirely until the call ends, then switches it back on. More likely to be audible, and a larger change to make on someone\'s behalf.</string>
+
+    <string name="settings_limits_title">What this app cannot promise</string>
+    <string name="settings_limits_silent">Silent mode is not the same as Vibrate, and an app cannot reliably make a phone on Silent audible. If the phone is on Silent, the app records that it stayed silent rather than pretending it worked.</string>
+    <string name="settings_limits_dnd">Do Not Disturb belongs to you and the system. On Android 15 and later, a stricter Do Not Disturb wins over anything an app asks for. When that happens the app logs it and says so on the status screen.</string>
+    <string name="settings_limits_oem">Some manufacturers ignore ring volume and ringer changes made by other apps. The app checks the result of every change it makes and reports the ones that did not take effect.</string>
+    <string name="settings_limits_timing">Android tells the app about a call as the phone starts ringing, not before, so the first moment of the ringtone may be at the old volume.</string>
+
+    <string name="settings_logging_title">Activity log</string>
+    <string name="settings_logging_enabled">Log routine events</string>
+    <string name="settings_logging_body">Errors are recorded whatever this is set to. Turning logging off must not make failures invisible.</string>
+    <string name="settings_open_test_mode">Open test mode</string>
+
+    <!-- ===================== Test mode ===================== -->
+    <string name="test_honesty_title">This is the real thing</string>
+    <string name="test_honesty_body">Simulating a call runs exactly the same code an incoming call does, on this device, with the permissions you have actually granted. Nothing is mocked and no permission result is faked — if something is missing, the simulation fails the same way a real call would.</string>
+    <string name="test_honesty_restore">A simulation really does change your ringer, volume and Do Not Disturb. They are put back by the same restore path a real call uses, and the button below forces it at any time.</string>
+
+    <string name="test_live_state_title">Live device state</string>
+    <string name="test_refresh">Refresh now</string>
+    <string name="test_capabilities_title">Capability report</string>
+
+    <string name="test_simulate_title">Simulate a priority call</string>
+    <string name="test_select_contact">Which contact should the simulated call come from?</string>
+    <string name="test_contact_row">%1$s (%2$s)</string>
+    <string name="test_simulate_call">Simulate priority call</string>
+    <string name="test_simulate_escalation">Simulate a repeat caller</string>
+    <string name="test_escalation_explainer">Simulating a repeat caller records the earlier calls it would take to reach your threshold (%1$d calls in %2$d minutes) and then places one more.</string>
+    <string name="test_no_contacts">Add an enabled priority contact first.</string>
+    <string name="test_escalation_disabled">Repeat-caller escalation is switched off in Settings.</string>
+    <string name="test_escalation_seeded">Earlier calls recorded. Running the call now.</string>
+    <string name="test_simulation_ran">Simulation finished. Check the result below.</string>
+
+    <string name="test_restore_title">Restore now</string>
+    <string name="test_restore_body">Puts the ringer mode, volume and Do Not Disturb back to whatever they were before the last priority call. Safe to press at any time.</string>
+    <string name="test_restore_pending">A simulated call changed your settings. They will be restored automatically, or press the button.</string>
+    <string name="test_restore_now">Restore now</string>
+    <string name="test_restore_done">Settings restored.</string>
+    <string name="test_restore_nothing">Nothing needed restoring.</string>
+    <string name="test_restore_incomplete">Restore was incomplete. Check the activity log.</string>
+
+    <string name="test_result_title">Result of the last attempt</string>
+    <string name="test_all_failed">Every change the app attempted was blocked. A real call would not have sounded any different.</string>
+
+    <!-- ===================== Full-screen alert ===================== -->
+    <string name="alert_title">Priority call from %1$s</string>
+    <string name="alert_unknown_contact">a priority contact</string>
+    <string name="alert_body">This person has called repeatedly in a short time. Answer the call from your phone\'s normal call screen — this app cannot answer it for you.</string>
+    <string name="alert_dismiss">Dismiss</string>
+    <string name="alert_channel_name">Priority call alerts</string>
+    <string name="alert_channel_description">Full-screen alerts for a priority contact calling repeatedly.</string>
+
+</resources>

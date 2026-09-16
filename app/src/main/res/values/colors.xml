@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only the handful of colours the *platform* needs before Compose takes over
+  (window backgrounds, adaptive icon). The app palette lives in
+  presentation/theme/Color.kt.
+-->
+<resources>
+    <color name="window_background">#FCFCFF</color>
+    <color name="alert_window_background">#FFDAD6</color>
+    <color name="ic_launcher_background">#00468C</color>
+</resources>
