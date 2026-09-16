@@ -501,20 +501,6 @@ class FakeRestoreRepository(private val recorder: CallRecorder = CallRecorder())
 
     val pending: CallSnapshot? get() = state.value
 
-    /**
-     * Put a snapshot on "disk" without going through [saveIfAbsent], and
-     * without recording a call.
-     *
-     * Models the state a freshly started process wakes up to: a snapshot left
-     * behind by a *previous* process that was killed mid-call. Tests that
-     * exercise cold-start behaviour must be able to reach that state without
-     * having applied anything in this process, since the whole point is that
-     * no in-memory flag survived.
-     */
-    fun seed(snapshot: CallSnapshot) {
-        state.value = snapshot
-    }
-
     override suspend fun saveIfAbsent(snapshot: CallSnapshot): Boolean {
         recorder.record(CallRecorder.SAVE_SNAPSHOT)
         saveAttempts++
@@ -533,7 +519,10 @@ class FakeRestoreRepository(private val recorder: CallRecorder = CallRecorder())
         state.value = null
     }
 
-    /** Install a snapshot without going through [saveIfAbsent]. */
+    /**
+     * Put a snapshot on "disk" without going through [saveIfAbsent].
+     * Models a previous process killed mid-call. Null clears.
+     */
     fun seed(snapshot: CallSnapshot?) {
         state.value = snapshot
     }

@@ -11,3 +11,6 @@
 local.properties
 *.jks
 *.keystore
+
+# Kotlin incremental compilation cache
+.kotlin/

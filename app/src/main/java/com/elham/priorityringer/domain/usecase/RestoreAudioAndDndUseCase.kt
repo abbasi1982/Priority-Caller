@@ -4,6 +4,7 @@ import com.elham.priorityringer.domain.model.AuditEventType
 import com.elham.priorityringer.domain.model.FailureReason
 import com.elham.priorityringer.domain.model.InterruptionFilter
 import com.elham.priorityringer.domain.model.Outcome
+import com.elham.priorityringer.domain.model.map
 import com.elham.priorityringer.domain.port.AlertPort
 import com.elham.priorityringer.domain.port.AudioPort
 import com.elham.priorityringer.domain.port.Clock

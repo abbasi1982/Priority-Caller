@@ -1,7 +1,8 @@
 [versions]
-# NOTE: These versions were not resolved against a live repository — no JDK,
-# Gradle, or Android SDK is installed in the environment this tree was authored
-# in. Verify/bump on first sync. See README.md § "Build verification status".
+# These versions resolved as written and produced a green
+# `:app:testDebugUnitTest` on JDK 17 / Android SDK 35. They have not been
+# exercised through an instrumented run. See README.md § "Build verification
+# status".
 agp = "8.7.3"
 kotlin = "2.0.21"
 ksp = "2.0.21-1.0.28"

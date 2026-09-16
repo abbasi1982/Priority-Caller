@@ -299,17 +299,17 @@ class IncomingCallCoordinatorTest {
     }
 
     @Test
-    fun `IDLE without a handled ring does not invoke restore at all`() = runTest {
+    fun `IDLE after a non-priority call does not change ringer or DND`() = runTest {
         givenSuppressedPhoneAndOneContact()
         coordinator.onIncomingCall(callFrom("+15559998888"))
 
         coordinator.onCallStateChanged(CallState.IDLE)
 
         assertEquals(
-            "every ordinary call ends in IDLE; running restore each time would be " +
-                "pointless work in a broadcast window",
+            "restore still runs (idempotent, no in-memory handled-ring flag) but " +
+                "must not mutate the device when nothing is pending",
             emptyList<String>(),
-            recorder.calls,
+            recorder.deviceMutations,
         )
     }
 

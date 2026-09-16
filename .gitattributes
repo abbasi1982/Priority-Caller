@@ -1,0 +1,14 @@
+# gradlew is executed by /bin/sh. CRLF in it produces "bad interpreter" on
+# Linux, macOS and WSL, so pin it to LF regardless of anyone's core.autocrlf.
+gradlew text eol=lf
+*.sh text eol=lf
+
+# Never line-ending-convert binaries.
+gradle-wrapper.jar binary
+*.jar binary
+*.keystore binary
+*.jks binary
+*.png binary
+*.webp binary
+
+gradlew.bat text eol=crlf

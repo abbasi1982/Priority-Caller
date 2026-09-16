@@ -27,41 +27,35 @@ to be clear about exactly where the line falls.
 
 **Read this before anything else.**
 
-There is no JDK, no Gradle and no Android SDK in the environment where this code
-was written. **Nothing in this repository has ever been compiled, and no test has
-ever been run.** Not once, not partially, not in an IDE.
+**Verified:** `./gradlew :app:testDebugUnitTest` builds and passes — 167 JVM unit
+tests — on JDK 17 with Android SDK platform 35 and build-tools 35. That covers
+the main Kotlin sources, the Hilt/KSP graph, resource generation, and the JVM
+test sources. The Gradle wrapper is committed and usable, dependency versions in
+`gradle/libs.versions.toml` resolved as written, and Room's exported schema is
+checked in at `app/schemas/…/1.json`.
 
-Concretely, that means:
+**Not verified — and this is the part that matters:**
 
-- **Expect compile errors on the first build.** The first `./gradlew assembleDebug`
-  should be treated as the beginning of the build process, not as a check that
-  everything already works. Unresolved references, Hilt/KSP graph errors and
-  missing-resource errors are all plausible and none of them would have been
-  caught yet.
-- **Dependency versions are unverified.** Everything in `gradle/libs.versions.toml`
-  was written from knowledge, not resolved against a live Maven repository. Some
-  versions may not exist, and the AGP / Kotlin / KSP / Compose-compiler /
-  Hilt versions must be mutually compatible — expect to bump some of them. That
-  file carries the same warning at the top.
-- **The Gradle wrapper is not usable.** `gradle/wrapper/gradle-wrapper.properties`
-  exists, but `gradlew`, `gradlew.bat` and `gradle/wrapper/gradle-wrapper.jar` do
-  **not**. You must generate them before you can use `./gradlew` at all. See
-  [Build and install](#build-and-install) below.
-- **`app/schemas/` does not exist yet, and cannot until the first successful
-  build.** Room generates the exported schema JSON as a build output. Until
-  `assembleDebug` succeeds at least once, `MigrationTest` has nothing to read and
-  cannot pass — that is expected, not a defect in the test.
-- **Test sources were reconciled against the production code by hand, not by a
-  compiler.** DAO method and column names in the instrumented tests were matched
-  against the real Room layer by reading it. That is a careful human check, not a
-  verified one, so expect some tests not to compile on the first attempt.
+- **No instrumented run.** `connectedAndroidTest` has never executed. Every
+  androidTest source (DAO tests, `MigrationTest`, the `PhoneNumberUtils.compare`
+  test) is unrun, and a JVM test passing says nothing about them.
+- **No device matrix.** The behaviour this app exists for — Vibrate, Silent, DND
+  on and off, a long answered call, and killing the process mid-ring — has not
+  been exercised on real hardware, or an emulator. Those are the cases where the
+  restore subsystem either holds or leaves a phone stranded off DND at raised
+  volume, and no unit test can settle them.
+- **No Compose UI tests.**
+- **Lock ordering is reasoned, not executed.** Restore always takes the
+  coordinator mutex before the restore mutex, never the reverse. That is an
+  argument from reading the code; a deadlock under a real fast-answer is exactly
+  the class of bug that reads fine.
 
-The source tree itself is otherwise complete: 63 main Kotlin files, 36 of them
-presentation, 11 resource XML files, 8 JVM unit test files and 8 instrumented
-test files. Complete is not the same as correct — see the first bullet.
+So: the tree compiles and its unit tests are green. That moves it from "never
+built" to "unproven on a phone". **Do not sideload it onto a family member's
+phone** until the device matrix above has been run.
 
-Nothing below this section should be read as "verified working". It describes
-what the code is written to do.
+Nothing below this section should be read as "verified on a device". It
+describes what the code is written to do.
 
 ---
 
@@ -180,34 +174,30 @@ This is recorded in `Architecture.md` § A.6 and repeated in
 
 ## Build and install
 
-Prerequisites: JDK 17, Android SDK with platform 35 installed, and either
-Android Studio or a Gradle installation.
+Prerequisites: JDK 17 and an Android SDK with platform 35 and build-tools 35.
+The Gradle wrapper is committed, so no separate Gradle installation is needed.
 
-**The Gradle wrapper is incomplete.** `gradle/wrapper/gradle-wrapper.properties`
-is present, but the `gradlew` / `gradlew.bat` scripts and
-`gradle/wrapper/gradle-wrapper.jar` are not, so `./gradlew` will not run.
-Generate the missing pieces first, using one of:
+Point the build at your SDK with a `local.properties` in the project root — it
+is gitignored on purpose, because it holds a machine-specific path:
 
-```bash
-# Option A — with a system Gradle installed
-gradle wrapper
-
-# Option B — open the project folder in Android Studio, which will
-# generate the wrapper and sync automatically.
+```properties
+sdk.dir=C\:\\Users\\<you>\\AppData\\Local\\Android\\Sdk
 ```
 
-Then:
+If `java` is not on your `PATH`, set `JAVA_HOME` to your JDK 17 install first.
 
 ```bash
+./gradlew :app:testDebugUnitTest              # 167 JVM unit tests — known green
 ./gradlew assembleDebug                       # build the debug APK
 ./gradlew installDebug                        # build + install onto a connected device
+./gradlew connectedAndroidTest                # instrumented tests — never yet run
 ```
 
 The APK lands in `app/build/outputs/apk/debug/`.
 
-Expect the first run of `assembleDebug` to fail. See
-[Build verification status](#build-verification-status). Work through the errors
-it reports; do not assume the tree is sound.
+Building successfully is not the bar here. See
+[Build verification status](#build-verification-status) for what is still
+unproven before this belongs on someone's phone.
 
 Java/Kotlin target is 17 (`sourceCompatibility`, `targetCompatibility`,
 `jvmTarget`).
