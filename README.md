@@ -34,11 +34,18 @@ to be clear about exactly where the line falls.
   sources.
 - `./gradlew assembleDebug` — `BUILD SUCCESSFUL`, so packaging and dexing work
   and a real APK comes out. Lint has not been run.
-- `./gradlew :app:connectedDebugAndroidTest` — **52 instrumented tests, green**,
+- `./gradlew :app:connectedDebugAndroidTest` — **57 instrumented tests, green**,
   on an API 35 emulator (`google_apis;x86_64`, Android 15, `networkCountryIso`
   = `us`). That is 44 Room tests (five DAO classes plus `MigrationTest`, which reads
-  the committed schemas and exercises the 1 → 2 migration) and the 8 in
-  `PlatformNumberMatchTest`.
+  the committed schemas and exercises the 1 → 2 migration), the 8 in
+  `PlatformNumberMatchTest`, and 5 in `RingerModeAndVolumeCouplingTest`.
+
+**An emulator cannot reproduce the bug that mattered most.** The Silent-to-
+Vibrate failure depends on the device's vibrate-when-ringing setting: writing
+ring index 0 while silent lands in VIBRATE on the phone that reported it, and
+`RingerModeAndVolumeCouplingTest` logs that on this emulator the same write
+leaves it in SILENT. Same code, same API level, opposite result. Treat a green
+emulator run as evidence the tests are sound, not that the phone agrees.
 
 An emulator settles the Room half honestly — SQLite, the schema, the 500-entry
 trim and the singular-row invariants do not care what hardware they run on.
@@ -78,7 +85,7 @@ checked in at `app/schemas/…/1.json` and `…/2.json`.
   argument from reading the code; a deadlock under a real fast-answer is exactly
   the class of bug that reads fine.
 
-So: the tree builds, and 239 tests pass — 187 on the JVM, 52 on an emulator.
+So: the tree builds, and 244 tests pass — 187 on the JVM, 57 on an emulator.
 That moves it from "never built" to "unproven on a phone". **Do not sideload it onto a family member's
 phone** until the device matrix above has been run.
 

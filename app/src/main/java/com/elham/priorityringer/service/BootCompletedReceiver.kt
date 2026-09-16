@@ -5,8 +5,10 @@ import android.content.Context
 import android.content.Intent
 import com.elham.priorityringer.di.ApplicationScope
 import com.elham.priorityringer.domain.usecase.IncomingCallCoordinator
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -43,31 +45,60 @@ import timber.log.Timber
  * the user's first unlock. Waiting is correct, not a limitation to route
  * around.
  *
- * `Application.onCreate` also kicks off a reconciliation, and creating this
- * receiver is itself what creates the `Application` — so the pass would happen
- * regardless. The explicit call here exists for a different reason: `goAsync()`
- * keeps the process alive until it finishes. Without it the process may be torn
- * down mid-restore, which is the failure this whole subsystem exists to
- * prevent. The pass is idempotent and serialised by the coordinator's mutex, so
- * running it twice costs one no-op database read.
+ * `Application.onCreate` also kicks off a reconciliation, and resolving
+ * dependencies here is itself what creates the `Application` — so the pass
+ * would happen regardless. The explicit call exists for a different reason:
+ * `goAsync()` keeps the process alive until it finishes. Without it the process
+ * may be torn down mid-restore, which is the failure this whole subsystem
+ * exists to prevent. The pass is idempotent and serialised by the coordinator's
+ * mutex, so running it twice costs one no-op database read.
+ *
+ * ## Why this resolves its own dependencies instead of using `@AndroidEntryPoint`
+ *
+ * `@AndroidEntryPoint` injects in generated code that runs *before* this class
+ * does, so a failure there throws straight out of `onReceive` with nothing this
+ * class can do about it. That is not hypothetical: under instrumentation the app
+ * runs on `HiltTestApplication`, which has no component until a test installs
+ * one, and a `BOOT_COMPLETED` arriving mid-test killed the whole instrumentation
+ * run with "The component was not created".
+ *
+ * A receiver in this app must never throw out of `onReceive` (§ 4, § A.2) — the
+ * rule already applied to the work, and it applies just as much to obtaining the
+ * things that do it. Resolving the graph by hand makes that expressible: no
+ * graph means a logged no-op, and the reboot pass is skipped rather than the
+ * process dying. In production the graph is always there.
  */
-@AndroidEntryPoint
 class BootCompletedReceiver : BroadcastReceiver() {
 
-    @Inject lateinit var coordinator: IncomingCallCoordinator
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface Dependencies {
+        fun coordinator(): IncomingCallCoordinator
 
-    @Inject @ApplicationScope lateinit var scope: CoroutineScope
+        @ApplicationScope
+        fun applicationScope(): CoroutineScope
+    }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
 
+        val dependencies = runCatching {
+            EntryPointAccessors.fromApplication(
+                context.applicationContext,
+                Dependencies::class.java,
+            )
+        }.getOrElse { error ->
+            Timber.w(error, "No dependency graph available; skipping the reboot restore pass")
+            return
+        }
+
         Timber.i("Boot completed; reconciling any stranded audio snapshot")
 
         val pending = goAsync()
-        scope.launch {
+        dependencies.applicationScope().launch {
             try {
                 withTimeoutOrNull(WORK_TIMEOUT_MS) {
-                    coordinator.reconcileStaleRestore()
+                    dependencies.coordinator().reconcileStaleRestore()
                 } ?: Timber.w("Boot reconciliation timed out after %d ms", WORK_TIMEOUT_MS)
             } catch (t: Throwable) {
                 // Never let this escape into the system's boot broadcast
