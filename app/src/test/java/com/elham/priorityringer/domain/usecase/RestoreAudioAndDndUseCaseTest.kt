@@ -59,7 +59,10 @@ class RestoreAudioAndDndUseCaseTest {
      * The device as it looks mid-priority-call: loud, ringing, DND relaxed —
      * with a snapshot on disk remembering the vibrate/quiet/DND state it had.
      */
-    private fun givenMutatedPhoneWithPendingSnapshot() {
+    private fun givenMutatedPhoneWithPendingSnapshot(
+        snapshotMode: RingerMode = RingerMode.VIBRATE,
+        snapshotVolumeIndex: Int = 0,
+    ) {
         audio.ringerMode = RingerMode.NORMAL
         audio.currentVolumeIndex = 15
         audio.maxVolumeIndex = 15
@@ -67,8 +70,8 @@ class RestoreAudioAndDndUseCaseTest {
         dnd.filter = InterruptionFilter.ALL
         restoreRepository.seed(
             testSnapshot(
-                ringerMode = RingerMode.VIBRATE,
-                ringVolume = VolumeSnapshot(current = 4, max = 15),
+                ringerMode = snapshotMode,
+                ringVolume = VolumeSnapshot(current = snapshotVolumeIndex, max = 15),
                 interruptionFilter = InterruptionFilter.PRIORITY,
                 zenRuleId = "rule-7",
                 capturedAtEpochMs = clock.now,
@@ -182,7 +185,12 @@ class RestoreAudioAndDndUseCaseTest {
     @Test
     fun `the volume is put back by raw index, not by percent, so rounding cannot drift it`() =
         runTest {
-            givenMutatedPhoneWithPendingSnapshot()
+            // NORMAL, because that is the only mode where a volume write is
+            // made at all — see RestoreAudioAndDndUseCase.restoreVolume.
+            givenMutatedPhoneWithPendingSnapshot(
+                snapshotMode = RingerMode.NORMAL,
+                snapshotVolumeIndex = 4,
+            )
 
             useCase(RestoreTrigger.CALL_ENDED)
 
@@ -241,7 +249,10 @@ class RestoreAudioAndDndUseCaseTest {
 
     @Test
     fun `a failed DND restore does not prevent the volume from being restored`() = runTest {
-        givenMutatedPhoneWithPendingSnapshot()
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.NORMAL,
+            snapshotVolumeIndex = 4,
+        )
         dnd.restoreResult = Outcome.Failure(FailureReason.SECURITY_EXCEPTION)
 
         useCase(RestoreTrigger.CALL_ENDED)
@@ -461,7 +472,12 @@ class RestoreAudioAndDndUseCaseTest {
 
     @Test
     fun `ringer mode is restored before volume, mirroring apply`() = runTest {
-        givenMutatedPhoneWithPendingSnapshot()
+        // NORMAL, so a volume write actually happens and the order is
+        // observable at all.
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.NORMAL,
+            snapshotVolumeIndex = 4,
+        )
 
         useCase(RestoreTrigger.CALL_ENDED)
 
@@ -471,71 +487,101 @@ class RestoreAudioAndDndUseCaseTest {
     }
 
     @Test
-    fun `a ring index mismatch in vibrate is not reported, because nobody can hear it`() =
-        runTest {
-            givenMutatedPhoneWithPendingSnapshot()
-            // The device took the write but reports a different index — what a
-            // phone does when the platform forces the ring stream to 0 in a
-            // non-audible mode. The snapshot's mode is VIBRATE and the ringer
-            // itself restores fine.
-            audio.setRingVolumeRawResult = Outcome.Failure(
-                reason = FailureReason.VERIFICATION_FAILED,
-                detail = "Requested index 4, device reports 0",
-            )
-
-            val outcome = useCase(RestoreTrigger.CALL_ENDED)
-
-            assertTrue("restore should report success: $outcome", outcome.isSuccess)
-            assertFalse(
-                "a difference the user cannot hear must not raise a failure banner",
-                audit.hasType(AuditEventType.RESTORATION_FAILED),
-            )
-        }
-
-    @Test
-    fun `the volume write is still attempted in vibrate, only its verification is relaxed`() =
-        runTest {
-            givenMutatedPhoneWithPendingSnapshot()
-            audio.setRingVolumeRawResult = Outcome.Failure(
-                reason = FailureReason.VERIFICATION_FAILED,
-                detail = "Requested index 4, device reports 0",
-            )
-
-            useCase(RestoreTrigger.CALL_ENDED)
-
-            assertEquals(
-                "the snapshot's index must still be written back",
-                listOf(4),
-                audio.volumeRawRequests,
-            )
-        }
-
-    @Test
-    fun `a ring index mismatch IS reported when the ringer mode did not restore`() = runTest {
-        givenMutatedPhoneWithPendingSnapshot()
-        // Mode stuck at NORMAL: the phone may really be sitting loud, so the
-        // index mismatch is now something the user can hear and must be told.
-        audio.setRingerModeResult = Outcome.Failure(
-            reason = FailureReason.VERIFICATION_FAILED,
-            detail = "Requested VIBRATE, device reports NORMAL",
-        )
-        audio.setRingVolumeRawResult = Outcome.Failure(
-            reason = FailureReason.VERIFICATION_FAILED,
-            detail = "Requested index 4, device reports 15",
+    fun `restoring SILENT leaves the phone SILENT, not VIBRATE`() = runTest {
+        // The real-device bug. The phone was on Silent; after the call it was
+        // on Vibrate. Restore set SILENT correctly and then wrote the
+        // snapshot's ring index of 0, and on Android that write *is* a ringer
+        // mode change — straight back out of SILENT into VIBRATE.
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.SILENT,
+            snapshotVolumeIndex = 0,
         )
 
         useCase(RestoreTrigger.CALL_ENDED)
 
-        val message = audit.lastOf(AuditEventType.RESTORATION_FAILED)?.message.orEmpty()
-        assertTrue("both failures must be reported: $message", message.contains("ringer"))
-        assertTrue("both failures must be reported: $message", message.contains("volume"))
+        assertEquals(
+            "a phone left on Silent must come back on Silent",
+            RingerMode.SILENT,
+            audio.ringerMode,
+        )
     }
 
     @Test
-    fun `a non-verification volume failure is reported even in vibrate`() = runTest {
-        givenMutatedPhoneWithPendingSnapshot()
-        // Not a read-back disagreement — the device actively refused. That is
-        // real regardless of which mode we are restoring to.
+    fun `restoring VIBRATE leaves the phone VIBRATE`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.VIBRATE,
+            snapshotVolumeIndex = 0,
+        )
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        assertEquals(RingerMode.VIBRATE, audio.ringerMode)
+    }
+
+    @Test
+    fun `no volume is written when restoring to a silent mode`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.SILENT,
+            snapshotVolumeIndex = 0,
+        )
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        assertEquals(
+            "the ringer mode carries the whole state; a write can only break it",
+            emptyList<Int>(),
+            audio.volumeRawRequests,
+        )
+    }
+
+    @Test
+    fun `skipping the volume write is reported as success, because it is one`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.SILENT,
+            snapshotVolumeIndex = 0,
+        )
+
+        val outcome = useCase(RestoreTrigger.CALL_ENDED)
+
+        assertTrue("$outcome", outcome.isSuccess)
+        assertFalse(audit.hasType(AuditEventType.RESTORATION_FAILED))
+    }
+
+    @Test
+    fun `volume IS written when restoring to NORMAL with an audible level`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.NORMAL,
+            snapshotVolumeIndex = 4,
+        )
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        assertEquals(listOf(4), audio.volumeRawRequests)
+        assertEquals(4, audio.currentVolumeIndex)
+        assertEquals(RingerMode.NORMAL, audio.ringerMode)
+    }
+
+    @Test
+    fun `a NORMAL snapshot with index zero does not write, which would undo NORMAL`() = runTest {
+        // Not a state the platform really holds — index 0 *is* silent — but if
+        // a device ever reports it, writing it back would flip the mode.
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.NORMAL,
+            snapshotVolumeIndex = 0,
+        )
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        assertEquals(emptyList<Int>(), audio.volumeRawRequests)
+        assertEquals(RingerMode.NORMAL, audio.ringerMode)
+    }
+
+    @Test
+    fun `a volume failure when restoring to NORMAL is reported`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.NORMAL,
+            snapshotVolumeIndex = 4,
+        )
         audio.setRingVolumeRawResult = Outcome.Failure(
             reason = FailureReason.NOTIFICATION_POLICY_ACCESS_DENIED,
             detail = "setStreamVolume(4) denied while DND active",
@@ -545,7 +591,7 @@ class RestoreAudioAndDndUseCaseTest {
 
         val message = audit.lastOf(AuditEventType.RESTORATION_FAILED)?.message.orEmpty()
         assertTrue(
-            "a refusal is not a cosmetic mismatch: $message",
+            "a refused write in the one mode that writes must be reported: $message",
             message.contains("volume NOTIFICATION_POLICY_ACCESS_DENIED"),
         )
     }

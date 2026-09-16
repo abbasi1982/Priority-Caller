@@ -152,6 +152,13 @@ class FakeAudioPort(private val recorder: CallRecorder = CallRecorder()) : Audio
     var volumeFixed: Boolean = false
 
     /**
+     * The device's vibrate-when-ringing preference, which decides whether a
+     * ring index of 0 lands in VIBRATE or SILENT. Defaults to the AOSP default
+     * (on), which is the configuration the Silent-to-Vibrate bug appeared in.
+     */
+    var vibrateWhenRinging: Boolean = true
+
+    /**
      * When set, [setRingerMode] returns this instead of succeeding and the
      * device state is left alone. Use it to force `SILENT_NOT_OVERRIDDEN`,
      * `VERIFICATION_FAILED`, `SECURITY_EXCEPTION`, …
@@ -192,7 +199,30 @@ class FakeAudioPort(private val recorder: CallRecorder = CallRecorder()) : Audio
         volumeRawRequests += index
         setRingVolumeRawResult?.let { return it }
         currentVolumeIndex = index
+        applyRingerModeCoupling(index)
         return Outcome.Success(currentRingVolume())
+    }
+
+    /**
+     * On Android the ring volume and the ringer mode are one setting, not two.
+     * `AudioService.onSetStreamVolume` treats the ring index as the
+     * silent/vibrate control: writing 0 drops the device into VIBRATE (or
+     * SILENT, per the user's vibrate-when-ringing preference), and writing
+     * above 0 lifts it out of silent into NORMAL.
+     *
+     * Modelled here because a fake that treats them as independent cannot fail
+     * the way a phone does. It did not, and a real device came back from a call
+     * on Vibrate after being left on Silent while every test stayed green.
+     *
+     * A fake is allowed to be simpler than the platform. It is not allowed to
+     * be more forgiving than the platform on the exact axis under test.
+     */
+    private fun applyRingerModeCoupling(index: Int) {
+        ringerMode = when {
+            index <= 0 && vibrateWhenRinging -> RingerMode.VIBRATE
+            index <= 0 -> RingerMode.SILENT
+            else -> RingerMode.NORMAL
+        }
     }
 }
 

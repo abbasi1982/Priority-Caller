@@ -95,18 +95,13 @@ class RestoreAudioAndDndUseCase @Inject constructor(
 
         // Each restore is attempted regardless of the others' outcomes.
         //
-        // **Ringer mode before volume**, mirroring the order apply uses. The
-        // reverse order verifies the ring index in the wrong ringer context:
-        // restoring a SILENT phone means writing index 0, and on AOSP index 0
-        // on the ring stream *is* a ringer-mode change
-        // (`AudioService.onSetStreamVolume`), so the write races the mode it is
-        // about to be corrected by. Settling the mode first means the index is
-        // written against the state it belongs to.
+        // **Ringer mode before volume**, mirroring the order apply uses, and
+        // the volume write is then skipped unless it can be made without
+        // disturbing that mode. See [restoreVolume].
         val ringerOutcome = audio.setRingerMode(snapshot.ringerMode)
         val volumeOutcome = restoreVolume(
             index = snapshot.ringVolume.current,
             restoredMode = snapshot.ringerMode,
-            ringerRestored = ringerOutcome.isSuccess,
         )
         val dndOutcome = restoreDnd(snapshot.interruptionFilter, snapshot.zenRuleId)
 
@@ -153,52 +148,63 @@ class RestoreAudioAndDndUseCase @Inject constructor(
     }
 
     /**
-     * @param restoredMode the ringer mode this restore is putting back.
-     * @param ringerRestored whether that mode was actually re-established.
+     * Put the ring volume back — but only when doing so cannot move the ringer
+     * mode, because on Android the two are not independent settings.
      *
-     * The ring-stream index is not user-observable in SILENT or VIBRATE — the
-     * platform forces it to 0 and the phone is silent either way. Devices
-     * disagree about what `getStreamVolume` then reports (0, or a retained
-     * non-zero index), so a read-back mismatch there describes a difference
-     * nobody can hear.
+     * `AudioService.onSetStreamVolume` treats the ring stream's index as the
+     * silent/vibrate control. Writing **0** puts the device into VIBRATE (or
+     * SILENT, depending on the user's vibrate-when-ringing setting); writing
+     * anything **above 0** takes it out of silent into NORMAL. So a volume
+     * write is also a ringer-mode write, whether or not it was meant as one.
      *
-     * Reporting it as a failure would tell the user to go and check settings
-     * that are already correct, which is worse than saying nothing: it spends
-     * the credibility the honest failures need. So the mismatch is downgraded —
-     * but **only** when the ringer mode itself was verifiably restored. If the
-     * mode did not go back, the phone may really be sitting at NORMAL with the
-     * wrong volume, and that is a genuine failure the user must hear about.
+     * That is a real bug found on a real phone, not a theoretical one: a phone
+     * that was on **Silent** came back from a call on **Vibrate**. Restore set
+     * the mode to SILENT correctly, then wrote the snapshot's index of 0 — and
+     * that write moved the mode to VIBRATE, undoing the line above it. The user
+     * ends up with a phone that buzzes at night when they had chosen silence,
+     * and the audit log says the restore succeeded, because each step did.
      *
-     * The write is always attempted. Only the verification is relaxed.
+     * So the volume is written only when restoring to NORMAL with an audible
+     * index. In every other case the ringer mode already carries the whole
+     * state:
+     *
+     * - **SILENT / VIBRATE.** The platform forces the index to 0 and the phone
+     *   is inaudible either way. There is nothing a write could add, and as
+     *   above, it actively breaks the mode.
+     * - **NORMAL with index 0.** Not a state the platform really holds — index
+     *   0 *is* silent — so writing it would flip the mode straight back out of
+     *   NORMAL.
+     *
+     * Skipping is reported as success because it is one: the device is in the
+     * state the snapshot describes. Claiming a failure here would be the same
+     * dishonesty in the other direction.
+     *
+     * **Known residue, and it is not fixable from what we captured.** While the
+     * phone was silent, `getStreamVolume` reported 0, so 0 is all the snapshot
+     * holds — the user's own audible ring level was never visible to us. Apply
+     * did set an audible index on the way up, and the system remembers that as
+     * the last audible level. If the user later switches the ringer back to
+     * Normal by hand, they may find it louder than they left it. Recorded here
+     * rather than papered over; fixing it needs apply to capture the audible
+     * index before raising it.
      */
-    private fun restoreVolume(
-        index: Int,
-        restoredMode: RingerMode,
-        ringerRestored: Boolean,
-    ): Outcome<Unit> {
+    private fun restoreVolume(index: Int, restoredMode: RingerMode): Outcome<Unit> {
         if (audio.isVolumeFixed()) {
             // We never changed it, so there is nothing to put back.
             return Outcome.ok()
         }
 
-        val outcome = audio.setRingVolumeRaw(index).map { }
-        val failure = outcome.failureOrNull() ?: return outcome
-
-        val inaudibleMode = restoredMode == RingerMode.SILENT || restoredMode == RingerMode.VIBRATE
-        return if (
-            failure.reason == FailureReason.VERIFICATION_FAILED &&
-            inaudibleMode &&
-            ringerRestored
-        ) {
+        if (restoredMode != RingerMode.NORMAL || index <= 0) {
             Timber.i(
-                "Ring index read-back mismatch in %s (%s); ringer mode restored, so not a failure",
+                "Not writing ring index %d: restoring to %s, where the ringer mode " +
+                    "carries the state and a volume write would move it",
+                index,
                 restoredMode,
-                failure.detail,
             )
-            Outcome.ok()
-        } else {
-            outcome
+            return Outcome.ok()
         }
+
+        return audio.setRingVolumeRaw(index).map { }
     }
 
     private fun restoreDnd(filter: InterruptionFilter, zenRuleId: String?): Outcome<Unit> =
