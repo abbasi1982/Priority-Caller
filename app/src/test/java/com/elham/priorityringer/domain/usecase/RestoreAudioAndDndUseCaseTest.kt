@@ -712,6 +712,27 @@ class RestoreAudioAndDndUseCaseTest {
         )
     }
 
+    /**
+     * The durable bound.
+     *
+     * The player's own timer is a main-thread Handler, and a device probe
+     * showed the process frozen as a cached app for 32 seconds after the
+     * broadcast returned — audio still playing, no main-thread callback
+     * running. A frozen Handler cannot stop anything. WorkManager survives
+     * that, so the watchdog is what actually bounds a stuck alert, and this
+     * test is what keeps that path wired up.
+     */
+    @Test
+    fun `the watchdog stops the alarm-stream alert, since the player's own timer can be frozen`() =
+        runTest {
+            givenMutatedPhoneWithPendingSnapshot()
+
+            useCase(RestoreTrigger.WATCHDOG_TIMEOUT)
+
+            assertFalse(ringtonePlayer.playing)
+            assertEquals(1, ringtonePlayer.stopCount)
+        }
+
     @Test
     fun `the alarm-stream alert is stopped even when the restore itself fails`() = runTest {
         givenMutatedPhoneWithPendingSnapshot()

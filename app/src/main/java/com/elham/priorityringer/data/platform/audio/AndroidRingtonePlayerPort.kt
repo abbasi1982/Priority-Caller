@@ -27,14 +27,25 @@ import timber.log.Timber
  * the route changes: `USAGE_ALARM` instead of the ring stream. A person whose
  * phone rings loudly in Silent should still recognise the sound as their phone.
  *
- * ## Why there is a timer in here
+ * ## What actually stops this alert, in order of reliability
  *
- * Three separate paths stop this alert — the `PHONE_STATE` receiver on
- * OFFHOOK/IDLE, the restore use case, and the watchdog. The timer is the fourth,
- * and exists because the others can all be lost at once: if the process is
- * frozen or the broadcast never arrives, nothing else in the app would ever
- * silence it. An alert that cannot stop is worse than one that never starts, and
- * this is the same reasoning that gives restore its own watchdog (§ A.3).
+ * 1. **The call ending.** `PhoneStateReceiver` stops it synchronously on
+ *    OFFHOOK/IDLE, outside any lock. This is the normal path.
+ * 2. **The restore watchdog** (§ A.3). A `WorkManager` one-shot is always
+ *    enqueued before any mutation, and every restore stops this alert before it
+ *    reads the snapshot. WorkManager survives process death and freezing, so
+ *    **this is the durable bound** — deferrable by Doze, but not lost.
+ * 3. **[MAX_DURATION_MS], the timer below.** Best-effort only.
+ *
+ * The timer used to be described here as the backstop for when the others are
+ * lost. That was wrong, and a device probe showed exactly how: after the
+ * broadcast returned, the app was frozen as a cached process for 32 seconds —
+ * no main-thread callback ran in that window, while audio kept playing, because
+ * playback lives in AudioFlinger and not in this process. A main-thread
+ * `Handler` is frozen by precisely the conditions it claimed to protect
+ * against. It is kept because it is free and it works whenever the process is
+ * running; it is no longer relied on, and must not be described as the last
+ * line again.
  *
  * ## No audio focus request
  *
@@ -258,6 +269,15 @@ class AndroidRingtonePlayerPort @Inject constructor(
         /**
          * Longer than a phone rings before going to voicemail (~30s), short
          * enough that a stuck alert is an annoyance rather than an emergency.
+         *
+         * Best-effort: this only fires while the process is running. See the
+         * class KDoc.
+         *
+         * No fixed relationship to the restore watchdog, which the user can set
+         * anywhere from 30s to 10 minutes: whichever trips first bounds the
+         * alert. What matters is that the watchdog is the only one of the two
+         * that survives a frozen process, so it is the bound to reason about
+         * for the worst case — not this one.
          */
         const val MAX_DURATION_MS = 60_000L
     }

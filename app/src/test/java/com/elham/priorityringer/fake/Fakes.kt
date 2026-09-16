@@ -329,6 +329,16 @@ class FakeRingtonePlayerPort(
     var startCount: Int = 0
     var stopCount: Int = 0
 
+    /**
+     * Runs inside [startAlarmStreamAlert], before it returns.
+     *
+     * Exists so a test can cancel the calling coroutine at the exact moment the
+     * real bug happens: the sound has been made by a blocking call, and the
+     * suspend that records it has not run yet. Cancelling from outside cannot
+     * reproduce that — the window is inside this method.
+     */
+    var onStart: (() -> Unit)? = null
+
     /** True while an alert would be sounding, so a test can assert silence. */
     var playing: Boolean = false
         private set
@@ -339,6 +349,7 @@ class FakeRingtonePlayerPort(
         recorder.record(CallRecorder.START_ALARM_ALERT)
         startCount++
         if (startResult.isSuccess) playing = true
+        onStart?.invoke()
         return startResult
     }
 

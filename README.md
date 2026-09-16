@@ -29,7 +29,7 @@ to be clear about exactly where the line falls.
 
 **Verified** on JDK 17 with Android SDK platform 35 and build-tools 35:
 
-- `./gradlew :app:testDebugUnitTest` — 202 JVM unit tests, green. Covers the
+- `./gradlew :app:testDebugUnitTest` — 204 JVM unit tests, green. Covers the
   main Kotlin sources, the Hilt/KSP graph, resource generation, and the JVM test
   sources.
 - `./gradlew assembleDebug` — `BUILD SUCCESSFUL`, so packaging and dexing work
@@ -83,16 +83,16 @@ checked in at `app/schemas/…/1.json` and `…/2.json`.
   been exercised on real hardware, or an emulator. Those are the cases where the
   restore subsystem either holds or leaves a phone stranded off DND at raised
   volume, and no unit test can settle them.
-- **The alarm-stream fallback has never made a sound.** `AndroidRingtonePlayerPort`
-  plays the user's ringtone on the alarm stream when the ringer approach is
-  verified to have failed. Its logic is covered by JVM tests against a fake, and
-  `AlarmStreamIndependenceTest` compiles — but it has **never been run**, on a
-  phone or an emulator, and no device has ever played this alert. Two facts it
-  depends on are unmeasured: that ringer mode does not silence `STREAM_ALARM`
-  (asserted by that test, unrun), and whether playback started from a
-  `PHONE_STATE` broadcast survives past the ~10s `goAsync()` window without a
-  foreground service (not measured at all; see `AlertDelivery.FOREGROUND_SERVICE`,
-  an enum value nothing currently returns).
+- **The alarm-stream fallback has sounded on an emulator, never on a phone.** An
+  API 35 emulator run with a real `PHONE_STATE` delivery, Silent, and DND access
+  revoked did play the alert and kept playing past the `goAsync()` window — so
+  no foreground service is needed for the platform mechanism, and
+  `AlertDelivery.FOREGROUND_SERVICE` remains an enum value nothing returns. That
+  run also found two bugs, both since fixed and both recorded in
+  `DeviceCompatibility.md`. What it does **not** settle: OEM process management,
+  Doze, and Silent-mode ringer coupling, which this same emulator is already on
+  record as getting differently from the target phone. `AlarmStreamIndependenceTest`
+  still has never been run anywhere.
 - **No Compose UI tests.** Planned, never written, so there is nothing to run.
 - **`PhoneNumberUtils.compare` has not been probed on the target phone.**
   `PlatformNumberMatchTest` passes on the emulator, which tells you the test is
@@ -108,7 +108,7 @@ checked in at `app/schemas/…/1.json` and `…/2.json`.
   argument from reading the code; a deadlock under a real fast-answer is exactly
   the class of bug that reads fine.
 
-So: the tree builds, and 259 tests pass — 202 on the JVM, 57 on an emulator.
+So: the tree builds, and 261 tests pass — 204 on the JVM, 57 on an emulator.
 That moves it from "never built" to "unproven on a phone". **Do not sideload it onto a family member's
 phone** until the device matrix above has been run.
 

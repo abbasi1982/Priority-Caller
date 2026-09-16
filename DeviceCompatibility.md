@@ -273,10 +273,50 @@ that device; do not copy emulator behaviour.
 | ID | What it asks | How | Outcome on the target phone |
 |---|---|---|---|
 | **P1** | Is `STREAM_ALARM` independent of ringer mode? Writing alarm index 0 must not move the ringer (the ring stream *does* couple index 0 to Vibrate). | `AlarmStreamIndependenceTest` (`adb shell cmd notification allow_dnd com.elham.priorityringer` first), plus a real Silent / Vibrate listen | **Not recorded.** Test exists; run it on the family phone before treating P1 as closed |
-| **P2** | Does `MediaPlayer` keep playing after `PHONE_STATE` / `goAsync()` returns, without a foreground service? | Real incoming call (or Test Mode) in Silent, listen for the full ring, then answer/decline and confirm it stops | **Not recorded.** No service was added. Until this is measured, delivery stays `IN_PROCESS` and Architecture.md § A.2 stays no-FGS |
+| **P2** | Does `MediaPlayer` keep playing after `PHONE_STATE` / `goAsync()` returns, without a foreground service? | Real incoming call (or Test Mode) in Silent, listen for the full ring, then answer/decline and confirm it stops | **Not recorded on the phone.** Measured on the API 35 emulator only — see below |
 
 A Pixel 6 AVD (API 35) was used for earlier instrumented work; that is **not**
 the family phone and is not a substitute for P1/P2.
+
+### Emulator run, API 35, 2026-09-17 — partial P2 answer
+
+Real `PHONE_STATE` delivery (`adb emu gsm call`), phone in Silent, DND access
+revoked so the ringer path genuinely failed, app not in the foreground. Audio
+started and kept playing for the full call:
+
+```
+t+0ms      isPlaying=true   alarmVol=6/7  ringerMode=SILENT  filter=PRIORITY
+t+10028ms  isPlaying=true          <- past the ~10s goAsync() window
+t+42012ms  isPlaying=true
+t+44082ms  player gone             <- stopped by the call ending, not by death
+```
+
+**Playback survives without a foreground service.** It is not held up by the
+app at all: audio lives in AudioFlinger, not in this process.
+
+Corroborating P1 on the same run, with the device sitting in Silent:
+`ringer mode muted streams = 0x1a6 (STREAM_SYSTEM, STREAM_RING,
+STREAM_NOTIFICATION, STREAM_SYSTEM_ENFORCED, STREAM_DTMF)` — `STREAM_ALARM` is
+not in the set.
+
+**Two bugs this run found, both now fixed:**
+
+1. *The alert played and was never audited.* Apply runs inside
+   `withTimeoutOrNull(5s)`; on a cold process it took 8.8s to reach the player,
+   so the coroutine was already cancelled when the blocking start call made
+   sound and the suspend that records it never ran. 44 seconds of alarm, zero
+   `ALARM_*` rows. Audit writes for the alert are now `NonCancellable`;
+   re-running the same probe produced `ALARM_STREAM_ALERT_STARTED`.
+2. *The player's 60s timer is not a backstop.* Heartbeats stopped between
+   t+10s and t+42s and resumed at the exact second the call ended — the process
+   was frozen as a cached app for 32 seconds while audio kept playing. A
+   main-thread `Handler` is frozen by the very conditions it claimed to guard
+   against. The durable bound is the WorkManager restore watchdog.
+
+**What this does not settle.** It is an emulator: no OEM process management, no
+Doze, no real carrier, and the README already records that this emulator
+disagrees with the target phone about Silent-mode ringer coupling. Treat P2 as
+answered for the *platform mechanism* and still open for the family phone.
 
 When P1 fails on a given OEM, the fallback is void there — report it; do not
 reach for a hidden API. When P2 fails (sound cuts as soon as the broadcast

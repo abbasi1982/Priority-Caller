@@ -21,7 +21,13 @@ import com.elham.priorityringer.fake.FakeRingtonePlayerPort
 import com.elham.priorityringer.fake.FakeSchedulerPort
 import com.elham.priorityringer.fake.FakeSettingsRepository
 import com.elham.priorityringer.fake.testContact
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -804,6 +810,39 @@ class ApplyPriorityRingUseCaseTest {
             "the reason must be on record before the attempt, so a phone that " +
                 "stays quiet has an explanation rather than a contradiction",
             warned < played,
+        )
+    }
+
+    /**
+     * Sound without a record, measured on a device.
+     *
+     * This use case runs inside `withTimeoutOrNull(5s)` in PhoneStateReceiver.
+     * An emulator probe took 8.8s to reach the player on a cold process, so the
+     * coroutine was already cancelled when the alert started — and because
+     * `startAlarmStreamAlert()` blocks, the sound happened while the audit
+     * write, a suspend call, did not. 44 seconds of alarm, nothing in the log.
+     *
+     * Cancelling the caller here reproduces exactly that.
+     */
+    @Test
+    fun `the alert is audited even when the surrounding timeout has cancelled us`() = runTest {
+        givenSilentPhoneThatRefusesToBecomeAudible()
+
+        val job = Job()
+        val scope = CoroutineScope(job + UnconfinedTestDispatcher(testScheduler))
+
+        // Cancel from *inside* the blocking start call — the exact window the
+        // probe hit. Cancelling from outside cannot reproduce it: by the time
+        // an outer cancel runs, the whole use case has already finished.
+        ringtonePlayer.onStart = { job.cancel() }
+
+        scope.launch { useCase(contact, settings) }
+        advanceUntilIdle()
+
+        assertEquals(
+            "the sound was made; recording it must not depend on a deadline",
+            1,
+            audit.entries.count { it.type == AuditEventType.ALARM_STREAM_ALERT_STARTED },
         )
     }
 

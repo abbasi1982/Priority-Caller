@@ -22,6 +22,8 @@ import com.elham.priorityringer.domain.repository.EscalationRepository
 import com.elham.priorityringer.domain.repository.RestoreRepository
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 /**
@@ -233,6 +235,63 @@ class ApplyPriorityRingUseCase @Inject constructor(
     ): Outcome<RingtonePlayerPort.AlertDelivery> {
         val audibility = ringtonePlayer.alarmAudibility()
 
+        // Every audit write below runs under NonCancellable, and that is not
+        // defensive habit — it is a measured bug.
+        //
+        // This use case runs inside `withTimeoutOrNull(5s)` in
+        // PhoneStateReceiver. On an emulator probe the apply path took 8.8s on
+        // a cold process, so the timeout had already cancelled the coroutine by
+        // the time the player started. `startAlarmStreamAlert()` is a blocking
+        // call, so cancellation did not stop the sound — only the record of it.
+        // The result was 44 seconds of alarm with nothing in the audit log to
+        // explain it, which is the worst version of this app's failure mode: a
+        // phone that did something and a log that denies it.
+        //
+        // The rule this encodes: **once a side effect has been made, recording
+        // it is not optional and must not depend on a deadline.**
+        writeAudibilityPrediction(audibility, contact)
+
+        // Attempted regardless of the prediction. The prediction reads settings;
+        // it does not decide the outcome, and declining to try on the strength
+        // of it would turn a guess into a silence.
+        val outcome = ringtonePlayer.startAlarmStreamAlert()
+
+        withContext(NonCancellable) {
+            when (outcome) {
+                is Outcome.Success -> audit.log(
+                    type = AuditEventType.ALARM_STREAM_ALERT_STARTED,
+                    message = "The ringer could not be made audible, so your ringtone " +
+                        "is playing as an alarm instead" +
+                        if (outcome.value == RingtonePlayerPort.AlertDelivery.IN_PROCESS) {
+                            " (it may stop early if the system closes the app)."
+                        } else {
+                            "."
+                        },
+                    relatedContactId = contact.id,
+                )
+
+                is Outcome.Failure -> audit.log(
+                    type = AuditEventType.ALARM_STREAM_ALERT_FAILED,
+                    message = "The backup alarm alert could not be started: " +
+                        outcome.reason.name + (outcome.detail?.let { " ($it)" } ?: ""),
+                    relatedContactId = contact.id,
+                    recoverable = true,
+                )
+            }
+        }
+
+        return outcome
+    }
+
+    /**
+     * Written *before* the attempt, so a phone that stays quiet has an
+     * explanation on record rather than a contradiction — and under
+     * [NonCancellable] for the same reason the outcome is.
+     */
+    private suspend fun writeAudibilityPrediction(
+        audibility: RingtonePlayerPort.AlarmAudibility,
+        contact: PriorityContact,
+    ) = withContext(NonCancellable) {
         when (audibility) {
             RingtonePlayerPort.AlarmAudibility.MUTED_BY_DND -> audit.log(
                 type = AuditEventType.ALARM_STREAM_ALERT_LIKELY_INAUDIBLE,
@@ -256,35 +315,6 @@ class ApplyPriorityRingUseCase @Inject constructor(
             RingtonePlayerPort.AlarmAudibility.UNKNOWN,
             -> Unit
         }
-
-        // Attempted regardless of the prediction. The prediction reads settings;
-        // it does not decide the outcome, and declining to try on the strength
-        // of it would turn a guess into a silence.
-        val outcome = ringtonePlayer.startAlarmStreamAlert()
-
-        when (outcome) {
-            is Outcome.Success -> audit.log(
-                type = AuditEventType.ALARM_STREAM_ALERT_STARTED,
-                message = "The ringer could not be made audible, so your ringtone " +
-                    "is playing as an alarm instead" +
-                    if (outcome.value == RingtonePlayerPort.AlertDelivery.IN_PROCESS) {
-                        " (it may stop early if the system closes the app)."
-                    } else {
-                        "."
-                    },
-                relatedContactId = contact.id,
-            )
-
-            is Outcome.Failure -> audit.log(
-                type = AuditEventType.ALARM_STREAM_ALERT_FAILED,
-                message = "The backup alarm alert could not be started: " +
-                    outcome.reason.name + (outcome.detail?.let { " ($it)" } ?: ""),
-                relatedContactId = contact.id,
-                recoverable = true,
-            )
-        }
-
-        return outcome
     }
 
     private suspend fun evaluateEscalation(
