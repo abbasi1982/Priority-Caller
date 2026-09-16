@@ -42,14 +42,14 @@ class PriorityContactDaoTest {
     }
 
     @Test
-    fun `inserting the first contact returns a real row id`() = runTest {
+    fun `inserting_the_first_contact_returns_a_real_row_id`() = runTest {
         val id = dao.insert(DaoTestSupport.contactEntity(matchKey = "1234567"))
 
         assertEquals(1L, id)
     }
 
     @Test
-    fun `a contact whose match key is already taken returns minus one instead of throwing`() =
+    fun `a_contact_whose_match_key_is_already_taken_returns_minus_one_instead_of_throwing`() =
         runTest {
             dao.insert(DaoTestSupport.contactEntity(matchKey = "1234567", displayName = "Mum"))
 
@@ -66,7 +66,7 @@ class PriorityContactDaoTest {
         }
 
     @Test
-    fun `a rejected duplicate does not overwrite the existing row`() = runTest {
+    fun `a_rejected_duplicate_does_not_overwrite_the_existing_row`() = runTest {
         dao.insert(DaoTestSupport.contactEntity(matchKey = "1234567", displayName = "Mum"))
 
         dao.insert(
@@ -77,7 +77,7 @@ class PriorityContactDaoTest {
     }
 
     @Test
-    fun `two different numbers both insert successfully`() = runTest {
+    fun `two_different_numbers_both_insert_successfully`() = runTest {
         dao.insert(DaoTestSupport.contactEntity(matchKey = "1234567", displayName = "Mum"))
         dao.insert(DaoTestSupport.contactEntity(matchKey = "9998888", displayName = "Dad"))
 
@@ -85,7 +85,7 @@ class PriorityContactDaoTest {
     }
 
     @Test
-    fun `deleting a contact frees its match key, so a mistaken delete is not permanent`() = runTest {
+    fun `deleting_a_contact_frees_its_match_key_so_a_mistaken_delete_is_not_permanent`() = runTest {
         val id = dao.insert(DaoTestSupport.contactEntity(matchKey = "1234567"))
         dao.deleteById(id)
 
@@ -95,7 +95,7 @@ class PriorityContactDaoTest {
     }
 
     @Test
-    fun `toggling a contact off keeps the row so the user can toggle it back on`() = runTest {
+    fun `toggling_a_contact_off_keeps_the_row_so_the_user_can_toggle_it_back_on`() = runTest {
         val id = dao.insert(DaoTestSupport.contactEntity(matchKey = "1234567"))
 
         dao.setEnabled(id, false)

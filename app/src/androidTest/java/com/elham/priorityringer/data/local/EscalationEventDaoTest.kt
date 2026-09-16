@@ -49,7 +49,7 @@ class EscalationEventDaoTest {
     }
 
     @Test
-    fun `timestamps at or after the cutoff are returned`() = runTest {
+    fun `timestamps_at_or_after_the_cutoff_are_returned`() = runTest {
         record(mum, now - 2 * minute)
         record(mum, now - minute)
 
@@ -59,7 +59,7 @@ class EscalationEventDaoTest {
     }
 
     @Test
-    fun `a timestamp exactly on the cutoff is included, matching the policy's inclusive edge`() =
+    fun `a_timestamp_exactly_on_the_cutoff_is_included_matching_the_policy_s_inclusive_edge`() =
         runTest {
             record(mum, now - 5 * minute)
 
@@ -74,14 +74,14 @@ class EscalationEventDaoTest {
         }
 
     @Test
-    fun `a timestamp before the cutoff is excluded`() = runTest {
+    fun `a_timestamp_before_the_cutoff_is_excluded`() = runTest {
         record(mum, now - 6 * minute)
 
         assertEquals(emptyList<Long>(), dao.timestampsSince(mum, now - 5 * minute))
     }
 
     @Test
-    fun `timestamps are isolated per number, so one caller cannot escalate another`() = runTest {
+    fun `timestamps_are_isolated_per_number_so_one_caller_cannot_escalate_another`() = runTest {
         record(dad, now - minute)
         record(dad, now - 2 * minute)
 
@@ -93,7 +93,7 @@ class EscalationEventDaoTest {
     }
 
     @Test
-    fun `repeated calls from one number all accumulate`() = runTest {
+    fun `repeated_calls_from_one_number_all_accumulate`() = runTest {
         record(mum, now - minute)
         record(mum, now - 2 * minute)
         record(mum, now - 3 * minute)
@@ -102,7 +102,7 @@ class EscalationEventDaoTest {
     }
 
     @Test
-    fun `pruning deletes rows older than the cutoff`() = runTest {
+    fun `pruning_deletes_rows_older_than_the_cutoff`() = runTest {
         record(mum, now - 30 * minute)
         record(mum, now - 20 * minute)
         record(mum, now - minute)
@@ -113,7 +113,7 @@ class EscalationEventDaoTest {
     }
 
     @Test
-    fun `pruning keeps a row sitting exactly on the cutoff`() = runTest {
+    fun `pruning_keeps_a_row_sitting_exactly_on_the_cutoff`() = runTest {
         record(mum, now - 10 * minute)
 
         dao.pruneBefore(now - 10 * minute)
@@ -126,7 +126,7 @@ class EscalationEventDaoTest {
     }
 
     @Test
-    fun `pruning applies across every number, not just the one that called`() = runTest {
+    fun `pruning_applies_across_every_number_not_just_the_one_that_called`() = runTest {
         record(mum, now - 30 * minute)
         record(dad, now - 30 * minute)
 
@@ -136,7 +136,7 @@ class EscalationEventDaoTest {
     }
 
     @Test
-    fun `clearing removes every recorded call`() = runTest {
+    fun `clearing_removes_every_recorded_call`() = runTest {
         record(mum, now - minute)
         record(dad, now - minute)
 

@@ -59,14 +59,14 @@ class AuditLogDaoTest {
     }
 
     @Test
-    fun `inserting more than the cap leaves exactly the cap`() = runTest {
+    fun `inserting_more_than_the_cap_leaves_exactly_the_cap`() = runTest {
         insertSequentially(cap + overflow)
 
         assertEquals(cap, dao.count())
     }
 
     @Test
-    fun `the oldest entries beyond the cap are the ones deleted`() = runTest {
+    fun `the_oldest_entries_beyond_the_cap_are_the_ones_deleted`() = runTest {
         insertSequentially(cap + overflow)
 
         val remaining = dao.getRecent(cap).map { it.timestampEpochMs }
@@ -79,7 +79,7 @@ class AuditLogDaoTest {
     }
 
     @Test
-    fun `the newest entry survives the trim`() = runTest {
+    fun `the_newest_entry_survives_the_trim`() = runTest {
         insertSequentially(cap + overflow)
 
         val newest = dao.getRecent(1).single()
@@ -88,7 +88,7 @@ class AuditLogDaoTest {
     }
 
     @Test
-    fun `results are returned newest first, which is the order the audit screen renders`() =
+    fun `results_are_returned_newest_first_which_is_the_order_the_audit_screen_renders`() =
         runTest {
             insertSequentially(3)
 
@@ -101,21 +101,21 @@ class AuditLogDaoTest {
         }
 
     @Test
-    fun `staying under the cap deletes nothing`() = runTest {
+    fun `staying_under_the_cap_deletes_nothing`() = runTest {
         insertSequentially(cap - 1)
 
         assertEquals(cap - 1, dao.count())
     }
 
     @Test
-    fun `inserting exactly the cap deletes nothing, so the boundary is inclusive`() = runTest {
+    fun `inserting_exactly_the_cap_deletes_nothing_so_the_boundary_is_inclusive`() = runTest {
         insertSequentially(cap)
 
         assertEquals(cap, dao.count())
     }
 
     @Test
-    fun `an error entry is stored with its unrecoverable flag intact`() = runTest {
+    fun `an_error_entry_is_stored_with_its_unrecoverable_flag_intact`() = runTest {
         dao.insertAndTrim(
             entity = DaoTestSupport.auditEntity(
                 timestampEpochMs = baseTimestamp,
@@ -137,7 +137,7 @@ class AuditLogDaoTest {
     }
 
     @Test
-    fun `clearing the log removes every row`() = runTest {
+    fun `clearing_the_log_removes_every_row`() = runTest {
         insertSequentially(10)
 
         dao.clear()

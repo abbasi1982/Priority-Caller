@@ -22,9 +22,19 @@ import com.elham.priorityringer.domain.model.RingerMode
  * and friends). Entity names and every other property name matched the contract
  * as written.
  *
- * Still unverified, because no compiler has ever run over this tree: DAO method
- * names. If one does not resolve, the assertion above it is still the behaviour
- * the contract requires — rename the call, do not delete the test.
+ * These now compile and dex (`assembleDebugAndroidTest` is green), so the DAO
+ * method names resolve against the real layer. They have still never been *run*
+ * — that needs a device.
+ *
+ * ## Test method names here must not contain spaces
+ *
+ * Unlike the JVM unit tests, which use ordinary backtick sentences, every name
+ * in `androidTest` uses underscores. This is not a style preference. D8 rejects
+ * a method name containing U+0020 with "cannot be represented in dex format",
+ * and it does so at `minSdk = 30` even though the DEX 040 grammar lists space
+ * as legal — so the whole `assembleDebugAndroidTest` fails, at the dex step,
+ * long after Kotlin has happily compiled it. Keep underscores in this source
+ * set; put the sentence in a KDoc line or the assertion message instead.
  *
  * Hilt is deliberately not used: these tests exercise SQL, not the DI graph,
  * and building the database directly keeps them independent of

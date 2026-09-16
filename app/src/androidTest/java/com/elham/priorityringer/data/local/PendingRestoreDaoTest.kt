@@ -45,12 +45,12 @@ class PendingRestoreDaoTest {
     }
 
     @Test
-    fun `there is no pending snapshot on a fresh database`() = runTest {
+    fun `there_is_no_pending_snapshot_on_a_fresh_database`() = runTest {
         assertNull(dao.getPending())
     }
 
     @Test
-    fun `the first insert stores the snapshot`() = runTest {
+    fun `the_first_insert_stores_the_snapshot`() = runTest {
         dao.insertIfAbsent(
             DaoTestSupport.pendingRestoreEntity(ringerMode = RingerMode.VIBRATE),
         )
@@ -59,14 +59,14 @@ class PendingRestoreDaoTest {
     }
 
     @Test
-    fun `the first insert reports that it took effect`() = runTest {
+    fun `the_first_insert_reports_that_it_took_effect`() = runTest {
         val rowId = dao.insertIfAbsent(DaoTestSupport.pendingRestoreEntity())
 
         assertTrue("an accepted insert must not report the -1 conflict sentinel", rowId > 0L)
     }
 
     @Test
-    fun `a second insert does not overwrite the row an overlapping call already wrote`() = runTest {
+    fun `a_second_insert_does_not_overwrite_the_row_an_overlapping_call_already_wrote`() = runTest {
         dao.insertIfAbsent(
             DaoTestSupport.pendingRestoreEntity(
                 ringerMode = RingerMode.VIBRATE,
@@ -91,7 +91,7 @@ class PendingRestoreDaoTest {
     }
 
     @Test
-    fun `a second insert leaves the original volume untouched`() = runTest {
+    fun `a_second_insert_leaves_the_original_volume_untouched`() = runTest {
         dao.insertIfAbsent(DaoTestSupport.pendingRestoreEntity(ringVolumeCurrent = 4))
 
         dao.insertIfAbsent(DaoTestSupport.pendingRestoreEntity(ringVolumeCurrent = 15))
@@ -100,7 +100,7 @@ class PendingRestoreDaoTest {
     }
 
     @Test
-    fun `a rejected second insert reports minus one rather than throwing`() = runTest {
+    fun `a_rejected_second_insert_reports_minus_one_rather_than_throwing`() = runTest {
         dao.insertIfAbsent(DaoTestSupport.pendingRestoreEntity())
 
         val rowId = dao.insertIfAbsent(DaoTestSupport.pendingRestoreEntity())
@@ -114,7 +114,7 @@ class PendingRestoreDaoTest {
     }
 
     @Test
-    fun `only ever one row exists, because the snapshot is singular`() = runTest {
+    fun `only_ever_one_row_exists_because_the_snapshot_is_singular`() = runTest {
         dao.insertIfAbsent(DaoTestSupport.pendingRestoreEntity())
         dao.insertIfAbsent(DaoTestSupport.pendingRestoreEntity())
         dao.insertIfAbsent(DaoTestSupport.pendingRestoreEntity())
@@ -123,7 +123,7 @@ class PendingRestoreDaoTest {
     }
 
     @Test
-    fun `clearing removes the snapshot so the next call can take a fresh one`() = runTest {
+    fun `clearing_removes_the_snapshot_so_the_next_call_can_take_a_fresh_one`() = runTest {
         dao.insertIfAbsent(DaoTestSupport.pendingRestoreEntity())
 
         dao.clear()
@@ -132,7 +132,7 @@ class PendingRestoreDaoTest {
     }
 
     @Test
-    fun `after clearing, a new snapshot can be written`() = runTest {
+    fun `after_clearing_a_new_snapshot_can_be_written`() = runTest {
         dao.insertIfAbsent(DaoTestSupport.pendingRestoreEntity(ringerMode = RingerMode.VIBRATE))
         dao.clear()
 
@@ -142,7 +142,7 @@ class PendingRestoreDaoTest {
     }
 
     @Test
-    fun `the interruption filter and zen rule id survive the round trip`() = runTest {
+    fun `the_interruption_filter_and_zen_rule_id_survive_the_round_trip`() = runTest {
         dao.insertIfAbsent(
             DaoTestSupport.pendingRestoreEntity(
                 interruptionFilter = InterruptionFilter.ALARMS,
@@ -157,7 +157,7 @@ class PendingRestoreDaoTest {
     }
 
     @Test
-    fun `a null zen rule id round-trips as null, because the legacy branch never creates one`() =
+    fun `a_null_zen_rule_id_round_trips_as_null_because_the_legacy_branch_never_creates_one`() =
         runTest {
             dao.insertIfAbsent(DaoTestSupport.pendingRestoreEntity(zenRuleId = null))
 

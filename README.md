@@ -34,6 +34,9 @@ to be clear about exactly where the line falls.
   sources.
 - `./gradlew assembleDebug` — `BUILD SUCCESSFUL`, so packaging and dexing work
   and a real APK comes out. Lint has not been run.
+- `./gradlew :app:assembleDebugAndroidTest` — `BUILD SUCCESSFUL`. All seven
+  instrumented test classes compile and dex, and the test APK builds. That is a
+  compile check, not a run.
 
 The Gradle wrapper is committed and usable, dependency versions in
 `gradle/libs.versions.toml` resolved as written, and Room's exported schema is
@@ -41,11 +44,10 @@ checked in at `app/schemas/…/1.json`.
 
 **Not verified — and this is the part that matters:**
 
-- **No instrumented run.** `connectedAndroidTest` has never executed, and
-  androidTest sources have never even been *compiled* — neither
-  `testDebugUnitTest` nor `assembleDebug` builds them. Seven classes are in that
-  state: five DAO tests, `MigrationTest`, and `PlatformNumberMatchTest`. A green
-  JVM run says nothing about any of them.
+- **No instrumented run.** `connectedAndroidTest` has never executed. The seven
+  classes — five DAO tests, `MigrationTest`, `PlatformNumberMatchTest` — compile
+  and dex, but not one assertion in them has ever been evaluated. That needs a
+  device or emulator.
 - **No device matrix.** The behaviour this app exists for — Vibrate, Silent, DND
   on and off, a long answered call, and killing the process mid-ring — has not
   been exercised on real hardware, or an emulator. Those are the cases where the

@@ -49,7 +49,7 @@ class MigrationTest {
     )
 
     @Test
-    fun `the version 1 schema is exported and can be created from it`() {
+    fun `the_version_1_schema_is_exported_and_can_be_created_from_it`() {
         val database = helper.createDatabase(TEST_DB, 1)
 
         assertTrue(
@@ -67,7 +67,7 @@ class MigrationTest {
     // data/local (e.g. `PriorityRingerDatabaseMigrations.MIGRATION_1_2`), then enable:
     //
     // @Test
-    // fun `data written at version 1 survives the migration to version 2`() {
+    // fun `data_written_at_version_1_survives_the_migration_to_version_2`() {
     //     helper.createDatabase(TEST_DB, 1).apply {
     //         execSQL(
     //             "INSERT INTO priority_contacts " +

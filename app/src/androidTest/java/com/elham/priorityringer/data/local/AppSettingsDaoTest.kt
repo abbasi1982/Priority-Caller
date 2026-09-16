@@ -45,7 +45,7 @@ class AppSettingsDaoTest {
      * own INSERT worked, which is worth nothing.
      */
     @Test
-    fun `a freshly created database already contains the settings row with id 1`() = runTest {
+    fun `a_freshly_created_database_already_contains_the_settings_row_with_id_1`() = runTest {
         val prepopulated = DaoTestSupport.inMemoryDatabase(prepopulateSettings = true)
         val settings = try {
             prepopulated.settingsDao().get()
@@ -62,7 +62,7 @@ class AppSettingsDaoTest {
     }
 
     @Test
-    fun `upserting the settings row stores the new values`() = runTest {
+    fun `upserting_the_settings_row_stores_the_new_values`() = runTest {
         dao.upsert(DaoTestSupport.settingsEntity(ringtoneVolumePercent = 80))
 
         dao.upsert(DaoTestSupport.settingsEntity(ringtoneVolumePercent = 55))
@@ -71,7 +71,7 @@ class AppSettingsDaoTest {
     }
 
     @Test
-    fun `upserting never creates a second row, because settings are singular`() = runTest {
+    fun `upserting_never_creates_a_second_row_because_settings_are_singular`() = runTest {
         dao.upsert(DaoTestSupport.settingsEntity(ringtoneVolumePercent = 80))
         dao.upsert(DaoTestSupport.settingsEntity(ringtoneVolumePercent = 55))
         dao.upsert(DaoTestSupport.settingsEntity(ringtoneVolumePercent = 30))
@@ -80,7 +80,7 @@ class AppSettingsDaoTest {
     }
 
     @Test
-    fun `an upsert round-trips the escalation thresholds unchanged`() = runTest {
+    fun `an_upsert_round_trips_the_escalation_thresholds_unchanged`() = runTest {
         dao.upsert(
             DaoTestSupport.settingsEntity(
                 primaryCallCount = 4,
@@ -95,16 +95,16 @@ class AppSettingsDaoTest {
         assertEquals(
             listOf(4, 7, 6, 21),
             listOf(
-                stored?.primaryCallCount,
-                stored?.primaryWindowMinutes,
-                stored?.secondaryCallCount,
-                stored?.secondaryWindowMinutes,
+                stored?.escalationPrimaryCallCount,
+                stored?.escalationPrimaryWindowMinutes,
+                stored?.escalationSecondaryCallCount,
+                stored?.escalationSecondaryWindowMinutes,
             ),
         )
     }
 
     @Test
-    fun `an upsert round-trips the DND strategy enum, so the converter is wired up`() = runTest {
+    fun `an_upsert_round_trips_the_DND_strategy_enum_so_the_converter_is_wired_up`() = runTest {
         dao.upsert(
             DaoTestSupport.settingsEntity(
                 dndBypassStrategy = DndBypassStrategy.DISABLE_DND_TEMPORARILY,
@@ -115,7 +115,7 @@ class AppSettingsDaoTest {
     }
 
     @Test
-    fun `an upsert round-trips the logging flag turned off`() = runTest {
+    fun `an_upsert_round_trips_the_logging_flag_turned_off`() = runTest {
         dao.upsert(DaoTestSupport.settingsEntity(loggingEnabled = false))
 
         assertEquals(false, dao.get()?.loggingEnabled)
