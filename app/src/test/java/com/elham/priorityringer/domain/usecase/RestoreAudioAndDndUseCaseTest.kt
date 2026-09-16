@@ -415,4 +415,138 @@ class RestoreAudioAndDndUseCaseTest {
 
             assertFalse(audit.hasType(AuditEventType.STALE_RESTORE_RECOVERED))
         }
+
+    // ------------------------------------------------ field-level reporting
+    //
+    // Found on a real phone: "Restore was incomplete (trigger: CALL_ENDED):
+    // VERIFICATION_FAILED." — which names neither the field that failed nor
+    // what the device reported, so it tells the user to check settings without
+    // saying which, and tells the next diagnosis nothing at all.
+
+    @Test
+    fun `a restore failure names the field that failed`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot()
+        dnd.restoreResult = Outcome.Failure(
+            reason = FailureReason.VERIFICATION_FAILED,
+            detail = "Wanted PRIORITY, device reports ALL",
+        )
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        val message = audit.lastOf(AuditEventType.RESTORATION_FAILED)?.message.orEmpty()
+        assertTrue(
+            "the entry must say which of ringer/volume/DND failed: $message",
+            message.contains("DND VERIFICATION_FAILED"),
+        )
+    }
+
+    @Test
+    fun `a restore failure carries the detail the device reported`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot()
+        dnd.restoreResult = Outcome.Failure(
+            reason = FailureReason.VERIFICATION_FAILED,
+            detail = "Wanted PRIORITY, device reports ALL",
+        )
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        val message = audit.lastOf(AuditEventType.RESTORATION_FAILED)?.message.orEmpty()
+        assertTrue(
+            "the detail is the whole diagnosis and must survive into the log: $message",
+            message.contains("Wanted PRIORITY, device reports ALL"),
+        )
+    }
+
+    // ------------------------------------------------------ ordering + volume
+
+    @Test
+    fun `ringer mode is restored before volume, mirroring apply`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot()
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        val ringerAt = recorder.calls.indexOf(CallRecorder.SET_RINGER)
+        val volumeAt = recorder.calls.indexOf(CallRecorder.SET_VOLUME_RAW)
+        assertTrue("ringer must be set first, got ${recorder.calls}", ringerAt in 0 until volumeAt)
+    }
+
+    @Test
+    fun `a ring index mismatch in vibrate is not reported, because nobody can hear it`() =
+        runTest {
+            givenMutatedPhoneWithPendingSnapshot()
+            // The device took the write but reports a different index — what a
+            // phone does when the platform forces the ring stream to 0 in a
+            // non-audible mode. The snapshot's mode is VIBRATE and the ringer
+            // itself restores fine.
+            audio.setRingVolumeRawResult = Outcome.Failure(
+                reason = FailureReason.VERIFICATION_FAILED,
+                detail = "Requested index 4, device reports 0",
+            )
+
+            val outcome = useCase(RestoreTrigger.CALL_ENDED)
+
+            assertTrue("restore should report success: $outcome", outcome.isSuccess)
+            assertFalse(
+                "a difference the user cannot hear must not raise a failure banner",
+                audit.hasType(AuditEventType.RESTORATION_FAILED),
+            )
+        }
+
+    @Test
+    fun `the volume write is still attempted in vibrate, only its verification is relaxed`() =
+        runTest {
+            givenMutatedPhoneWithPendingSnapshot()
+            audio.setRingVolumeRawResult = Outcome.Failure(
+                reason = FailureReason.VERIFICATION_FAILED,
+                detail = "Requested index 4, device reports 0",
+            )
+
+            useCase(RestoreTrigger.CALL_ENDED)
+
+            assertEquals(
+                "the snapshot's index must still be written back",
+                listOf(4),
+                audio.volumeRawRequests,
+            )
+        }
+
+    @Test
+    fun `a ring index mismatch IS reported when the ringer mode did not restore`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot()
+        // Mode stuck at NORMAL: the phone may really be sitting loud, so the
+        // index mismatch is now something the user can hear and must be told.
+        audio.setRingerModeResult = Outcome.Failure(
+            reason = FailureReason.VERIFICATION_FAILED,
+            detail = "Requested VIBRATE, device reports NORMAL",
+        )
+        audio.setRingVolumeRawResult = Outcome.Failure(
+            reason = FailureReason.VERIFICATION_FAILED,
+            detail = "Requested index 4, device reports 15",
+        )
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        val message = audit.lastOf(AuditEventType.RESTORATION_FAILED)?.message.orEmpty()
+        assertTrue("both failures must be reported: $message", message.contains("ringer"))
+        assertTrue("both failures must be reported: $message", message.contains("volume"))
+    }
+
+    @Test
+    fun `a non-verification volume failure is reported even in vibrate`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot()
+        // Not a read-back disagreement — the device actively refused. That is
+        // real regardless of which mode we are restoring to.
+        audio.setRingVolumeRawResult = Outcome.Failure(
+            reason = FailureReason.NOTIFICATION_POLICY_ACCESS_DENIED,
+            detail = "setStreamVolume(4) denied while DND active",
+        )
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        val message = audit.lastOf(AuditEventType.RESTORATION_FAILED)?.message.orEmpty()
+        assertTrue(
+            "a refusal is not a cosmetic mismatch: $message",
+            message.contains("volume NOTIFICATION_POLICY_ACCESS_DENIED"),
+        )
+    }
 }

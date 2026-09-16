@@ -4,6 +4,7 @@ import com.elham.priorityringer.domain.model.AuditEventType
 import com.elham.priorityringer.domain.model.FailureReason
 import com.elham.priorityringer.domain.model.InterruptionFilter
 import com.elham.priorityringer.domain.model.Outcome
+import com.elham.priorityringer.domain.model.RingerMode
 import com.elham.priorityringer.domain.model.map
 import com.elham.priorityringer.domain.port.AlertPort
 import com.elham.priorityringer.domain.port.AudioPort
@@ -93,14 +94,26 @@ class RestoreAudioAndDndUseCase @Inject constructor(
         alert.dismissAlert()
 
         // Each restore is attempted regardless of the others' outcomes.
-        val volumeOutcome = restoreVolume(snapshot.ringVolume.current)
+        //
+        // **Ringer mode before volume**, mirroring the order apply uses. The
+        // reverse order verifies the ring index in the wrong ringer context:
+        // restoring a SILENT phone means writing index 0, and on AOSP index 0
+        // on the ring stream *is* a ringer-mode change
+        // (`AudioService.onSetStreamVolume`), so the write races the mode it is
+        // about to be corrected by. Settling the mode first means the index is
+        // written against the state it belongs to.
         val ringerOutcome = audio.setRingerMode(snapshot.ringerMode)
+        val volumeOutcome = restoreVolume(
+            index = snapshot.ringVolume.current,
+            restoredMode = snapshot.ringerMode,
+            ringerRestored = ringerOutcome.isSuccess,
+        )
         val dndOutcome = restoreDnd(snapshot.interruptionFilter, snapshot.zenRuleId)
 
         val failures = listOfNotNull(
-            volumeOutcome.failureOrNull(),
-            ringerOutcome.failureOrNull(),
-            dndOutcome.failureOrNull(),
+            ringerOutcome.failureOrNull()?.let { "ringer" to it },
+            volumeOutcome.failureOrNull()?.let { "volume" to it },
+            dndOutcome.failureOrNull()?.let { "DND" to it },
         )
 
         // Clear unconditionally. A retained snapshot would be re-applied on the
@@ -121,22 +134,72 @@ class RestoreAudioAndDndUseCase @Inject constructor(
         } else {
             audit.log(
                 type = AuditEventType.RESTORATION_FAILED,
+                // Name the field and carry the detail. "VERIFICATION_FAILED"
+                // alone does not say which of three fields failed or what the
+                // device actually reported, which leaves the user with nothing
+                // to act on and the next diagnosis with nothing to go on —
+                // in an app whose whole promise is saying plainly what did not
+                // work.
                 message = "Restore was incomplete (trigger: $trigger): " +
-                    failures.joinToString { it.reason.name } +
+                    failures.joinToString("; ") { (field, failure) ->
+                        "$field ${failure.reason.name}" +
+                            (failure.detail?.let { " ($it)" } ?: "")
+                    } +
                     ". Check your ringer and Do Not Disturb settings.",
                 recoverable = false,
             )
-            failures.first()
+            failures.first().second
         }
     }
 
-    private fun restoreVolume(index: Int): Outcome<Unit> =
+    /**
+     * @param restoredMode the ringer mode this restore is putting back.
+     * @param ringerRestored whether that mode was actually re-established.
+     *
+     * The ring-stream index is not user-observable in SILENT or VIBRATE — the
+     * platform forces it to 0 and the phone is silent either way. Devices
+     * disagree about what `getStreamVolume` then reports (0, or a retained
+     * non-zero index), so a read-back mismatch there describes a difference
+     * nobody can hear.
+     *
+     * Reporting it as a failure would tell the user to go and check settings
+     * that are already correct, which is worse than saying nothing: it spends
+     * the credibility the honest failures need. So the mismatch is downgraded —
+     * but **only** when the ringer mode itself was verifiably restored. If the
+     * mode did not go back, the phone may really be sitting at NORMAL with the
+     * wrong volume, and that is a genuine failure the user must hear about.
+     *
+     * The write is always attempted. Only the verification is relaxed.
+     */
+    private fun restoreVolume(
+        index: Int,
+        restoredMode: RingerMode,
+        ringerRestored: Boolean,
+    ): Outcome<Unit> {
         if (audio.isVolumeFixed()) {
             // We never changed it, so there is nothing to put back.
+            return Outcome.ok()
+        }
+
+        val outcome = audio.setRingVolumeRaw(index).map { }
+        val failure = outcome.failureOrNull() ?: return outcome
+
+        val inaudibleMode = restoredMode == RingerMode.SILENT || restoredMode == RingerMode.VIBRATE
+        return if (
+            failure.reason == FailureReason.VERIFICATION_FAILED &&
+            inaudibleMode &&
+            ringerRestored
+        ) {
+            Timber.i(
+                "Ring index read-back mismatch in %s (%s); ringer mode restored, so not a failure",
+                restoredMode,
+                failure.detail,
+            )
             Outcome.ok()
         } else {
-            audio.setRingVolumeRaw(index).map { }
+            outcome
         }
+    }
 
     private fun restoreDnd(filter: InterruptionFilter, zenRuleId: String?): Outcome<Unit> =
         if (!dnd.hasPolicyAccess()) {

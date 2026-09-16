@@ -14,6 +14,7 @@ import com.elham.priorityringer.domain.usecase.IncomingCallCoordinator
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
@@ -97,9 +98,34 @@ class PhoneStateReceiver : BroadcastReceiver() {
         lastNumber = rawNumber
         lastRingingAtMs = now
 
+        val blank = rawNumber.isNullOrBlank()
+        if (!blank) lastNumberedRingingAtMs = now
+
         val pending = goAsync()
         scope.launch {
             try {
+                // A blank delivery waits before it is allowed to claim the
+                // caller is unidentifiable.
+                //
+                // Observed on a real phone: the *first* RINGING broadcast for a
+                // call carried no number and the second, milliseconds later,
+                // did. The debounce above only catches a blank arriving after a
+                // numbered one, so the blank-first order logged "no caller
+                // number — this normally means the Call Log permission is not
+                // granted" about a call the app went on to identify correctly,
+                // with the permission granted. A false statement about the
+                // user's own permissions, in the log they are told to trust.
+                //
+                // Nothing is lost by waiting: a blank broadcast carries nothing
+                // to act on, so the only thing deferred is the log entry.
+                if (blank) {
+                    delay(BLANK_NUMBER_GRACE_MS)
+                    if (lastNumberedRingingAtMs > now) {
+                        Timber.d("Blank RINGING superseded by a numbered delivery")
+                        return@launch
+                    }
+                }
+
                 withTimeoutOrNull(WORK_TIMEOUT_MS) {
                     coordinator.onIncomingCall(
                         IncomingCallEvent(
@@ -152,8 +178,21 @@ class PhoneStateReceiver : BroadcastReceiver() {
          */
         const val DEBOUNCE_MS = 500L
 
+        /**
+         * How long a blank RINGING waits for a numbered delivery of the same
+         * call before it reports the caller as unidentifiable.
+         *
+         * Comfortably covers the observed gap (milliseconds) while staying far
+         * inside [WORK_TIMEOUT_MS] and the system's broadcast window. It delays
+         * only an audit entry — never a ring.
+         */
+        const val BLANK_NUMBER_GRACE_MS = 1_000L
+
         @Volatile
         var lastRingingAtMs: Long = 0L
+
+        @Volatile
+        var lastNumberedRingingAtMs: Long = 0L
 
         @Volatile
         var lastNumber: String? = null
