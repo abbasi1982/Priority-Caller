@@ -1,6 +1,7 @@
 package com.elham.priorityringer.data.local
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.elham.priorityringer.data.local.dao.ContactDao
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals

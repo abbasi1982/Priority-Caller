@@ -94,6 +94,17 @@ interface DndPort {
 interface TelephonyPort {
     fun callState(): Flow<CallState>
 
+    /**
+     * Call state *right now*, without waiting for an emission.
+     *
+     * Needed by cold-start reconciliation: a process that has just been
+     * restarted has no [callState] history yet, and must not restore the
+     * device's audio while a call is actively ringing. Returns
+     * [CallState.IDLE] when the state cannot be read — the conservative answer
+     * would be to block restore forever, which is worse than restoring early.
+     */
+    fun currentCallState(): CallState
+
     /** ISO-3166 alpha-2 from network, falling back to SIM then locale (§ 5.3). */
     fun defaultCountryIso(): String?
 

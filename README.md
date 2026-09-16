@@ -88,10 +88,16 @@ compares it** to what it asked for. If the device did not actually change, that
 is recorded as a detected failure in the audit log and shown in the UI. It is
 never reported as success.
 
-When the call ends the original settings are restored. Restore has three
-independent triggers (call-state change, the watchdog timeout, and a
-reconciliation pass on app start), because running restore more than once is
-harmless and running it zero times is not.
+The original settings are restored as soon as the call is **answered or ends** —
+once the ringtone has stopped, the raised volume and relaxed DND have done their
+job. Restore has three independent triggers (the call-state change, a watchdog
+timeout, and a reconciliation pass on app start), because running restore more
+than once is harmless and running it zero times is not.
+
+The reconciliation pass deliberately does **nothing** while a call is in
+progress. If the app is killed mid-ring, Android restarts it for the very call
+that is still ringing — and restoring at that moment would put the phone back to
+vibrate and silence the call the app is there to make audible.
 
 If the incoming number is **not** a priority contact, the app touches nothing at
 all — no audio change, no DND change, and no audit entry (logging every ordinary

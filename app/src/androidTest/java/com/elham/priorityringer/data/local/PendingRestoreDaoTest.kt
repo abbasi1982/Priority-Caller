@@ -1,6 +1,7 @@
 package com.elham.priorityringer.data.local
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.elham.priorityringer.data.local.dao.RestoreDao
 import com.elham.priorityringer.domain.model.InterruptionFilter
 import com.elham.priorityringer.domain.model.RingerMode
 import kotlinx.coroutines.test.runTest

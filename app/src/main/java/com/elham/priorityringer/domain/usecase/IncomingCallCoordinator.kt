@@ -4,6 +4,7 @@ import com.elham.priorityringer.domain.model.AuditEventType
 import com.elham.priorityringer.domain.model.CallMatchResult
 import com.elham.priorityringer.domain.model.CallState
 import com.elham.priorityringer.domain.model.IncomingCallEvent
+import com.elham.priorityringer.domain.port.TelephonyPort
 import com.elham.priorityringer.domain.repository.AuditRepository
 import com.elham.priorityringer.domain.repository.SettingsRepository
 import javax.inject.Inject
@@ -23,7 +24,7 @@ import timber.log.Timber
  * 1. Ignore empty numbers → log `NUMBER_UNAVAILABLE`.
  * 2. No match → do **nothing** to audio or DND.
  * 3. Match → snapshot → apply → schedule timeout restore.
- * 4. `IDLE` after ringing → restore.
+ * 4. Call answered (`OFFHOOK`) or ended (`IDLE`) → restore.
  * 5. Apply failure → log and surface a persistent "last failure" on Dashboard.
  *
  * Point 2 is a hard rule, not an optimisation: a non-priority call must leave
@@ -37,6 +38,7 @@ class IncomingCallCoordinator @Inject constructor(
     private val restore: RestoreAudioAndDndUseCase,
     private val settings: SettingsRepository,
     private val audit: AuditRepository,
+    private val telephony: TelephonyPort,
 ) {
     private val mutex = Mutex()
 
@@ -44,10 +46,6 @@ class IncomingCallCoordinator @Inject constructor(
 
     /** Most recent apply attempt, for Dashboard and Test Mode. */
     val lastResult: StateFlow<ApplyResult?> = _lastResult.asStateFlow()
-
-    /** Have we applied changes for a call that has not yet ended? */
-    @Volatile
-    private var ringingHandled: Boolean = false
 
     /**
      * Handle a `PHONE_STATE` RINGING broadcast.
@@ -101,7 +99,6 @@ class IncomingCallCoordinator @Inject constructor(
                     isSimulated = event.isSimulated,
                 )
                 _lastResult.value = result
-                ringingHandled = true
             }
         }
     }
@@ -109,24 +106,57 @@ class IncomingCallCoordinator @Inject constructor(
     /**
      * Drive restore from call state (§ 5.2, § A.3 trigger 1).
      *
-     * Only [CallState.IDLE] restores. `OFFHOOK` means the call was answered and
-     * is in progress — restoring then would drop ring volume mid-conversation
-     * for no benefit, and the call could still be rejected and re-ring.
+     * **Both `OFFHOOK` and `IDLE` restore.** An earlier version restored only on
+     * `IDLE`, reasoning that restoring mid-conversation dropped ring volume for
+     * no benefit. That was wrong on two counts:
+     *
+     * 1. Once a call is answered the ringtone has stopped, so the raised volume
+     *    and relaxed DND have already served their entire purpose. Ring-stream
+     *    volume is not the in-call voice stream, so restoring it changes nothing
+     *    the person on the call can hear.
+     * 2. Not restoring on `OFFHOOK` left the watchdog scheduled during the call.
+     *    On any call longer than `autoRestoreTimeoutSeconds` (90s by default)
+     *    the watchdog would fire and restore *anyway*, mid-conversation — the
+     *    exact outcome the original reasoning was trying to avoid, just at an
+     *    arbitrary moment instead of a chosen one.
+     *
+     * Restoring at the moment of answering is the earliest point at which
+     * restoring is harmless, and it retires the watchdog before it can fire.
+     *
+     * There is deliberately no "did we apply anything?" flag guarding this.
+     * Such a flag lives in memory, so after a process restart it reads `false`
+     * even though a snapshot is pending on disk — and would suppress the very
+     * restore that matters most. [restore] is idempotent and cheap when nothing
+     * is pending, so it is simply always called.
      */
     suspend fun onCallStateChanged(state: CallState) {
-        if (state != CallState.IDLE) return
-        if (!ringingHandled) return
+        if (state == CallState.RINGING) return
 
-        ringingHandled = false
         restore(RestoreTrigger.CALL_ENDED)
     }
 
     /**
-     * Trigger 3 — cold-start reconciliation. Called from `Application.onCreate`
-     * and from the receiver, so a snapshot stranded by a process kill is always
-     * found. A no-op when nothing is pending.
+     * Trigger 3 — cold-start reconciliation (§ A.3).
+     *
+     * **Must not restore while a call is in progress.** The dangerous sequence:
+     * the process is killed mid-ring, the next `PHONE_STATE` broadcast restarts
+     * it, `Application.onCreate` runs — and an unconditional restore here would
+     * put the phone back to vibrate and re-arm DND *while the priority call is
+     * still ringing*, silencing the call this app exists to make audible. The
+     * same race can also have a cold-start restore interleave with the apply for
+     * a second call.
+     *
+     * So when telephony reports anything other than idle, reconciliation defers.
+     * Nothing is lost by waiting: the pending snapshot stays on disk, the
+     * WorkManager watchdog survived the process death, and
+     * [onCallStateChanged] will restore as soon as the call is answered or ends.
      */
     suspend fun reconcileStaleRestore() {
+        val state = telephony.currentCallState()
+        if (state != CallState.IDLE) {
+            Timber.i("Deferring cold-start restore: call state is %s", state)
+            return
+        }
         restore(RestoreTrigger.COLD_START_RECONCILIATION)
     }
 }

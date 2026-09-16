@@ -294,7 +294,16 @@ class FakeTelephonyPort(
 
     val platformMatchQueries = mutableListOf<Pair<String, String>>()
 
+    /**
+     * What a synchronous probe reports. Distinct from the [callState] flow: the
+     * cold-start reconciliation path reads this *without* any emission having
+     * happened, which is exactly the situation a just-restarted process is in.
+     */
+    var currentState: CallState = CallState.IDLE
+
     override fun callState(): Flow<CallState> = _callState.asSharedFlow()
+
+    override fun currentCallState(): CallState = currentState
 
     override fun defaultCountryIso(): String? = countryIso
 
@@ -491,6 +500,20 @@ class FakeRestoreRepository(private val recorder: CallRecorder = CallRecorder())
     var clearCount: Int = 0
 
     val pending: CallSnapshot? get() = state.value
+
+    /**
+     * Put a snapshot on "disk" without going through [saveIfAbsent], and
+     * without recording a call.
+     *
+     * Models the state a freshly started process wakes up to: a snapshot left
+     * behind by a *previous* process that was killed mid-call. Tests that
+     * exercise cold-start behaviour must be able to reach that state without
+     * having applied anything in this process, since the whole point is that
+     * no in-memory flag survived.
+     */
+    fun seed(snapshot: CallSnapshot) {
+        state.value = snapshot
+    }
 
     override suspend fun saveIfAbsent(snapshot: CallSnapshot): Boolean {
         recorder.record(CallRecorder.SAVE_SNAPSHOT)

@@ -2,6 +2,11 @@ package com.elham.priorityringer.data.local
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.elham.priorityringer.data.local.entity.AppSettingsEntity
+import com.elham.priorityringer.data.local.entity.AuditLogEntryEntity
+import com.elham.priorityringer.data.local.entity.EscalationEventEntity
+import com.elham.priorityringer.data.local.entity.PendingRestoreEntity
+import com.elham.priorityringer.data.local.entity.PriorityContactEntity
 import com.elham.priorityringer.domain.model.AuditEventType
 import com.elham.priorityringer.domain.model.DndBypassStrategy
 import com.elham.priorityringer.domain.model.InterruptionFilter

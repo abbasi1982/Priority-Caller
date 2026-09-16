@@ -22,6 +22,7 @@ import com.elham.priorityringer.fake.FakeSchedulerPort
 import com.elham.priorityringer.fake.FakeSettingsRepository
 import com.elham.priorityringer.fake.FakeTelephonyPort
 import com.elham.priorityringer.fake.testContact
+import com.elham.priorityringer.fake.testSnapshot
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -92,6 +93,7 @@ class IncomingCallCoordinatorTest {
         restore = restore,
         settings = settings,
         audit = audit,
+        telephony = telephony,
     )
 
     private fun callFrom(raw: String?) = IncomingCallEvent(
@@ -308,8 +310,13 @@ class IncomingCallCoordinatorTest {
         )
     }
 
+    /**
+     * The snapshot, not an in-memory flag, is what makes the second call a
+     * no-op. That distinction is the point: a flag would also suppress the
+     * restore after a process restart, when the snapshot is the only thing left.
+     */
     @Test
-    fun `IDLE restores only once, because ringingHandled is consumed`() = runTest {
+    fun `a repeated IDLE does not touch the device again, because nothing is pending`() = runTest {
         givenSuppressedPhoneAndOneContact()
         coordinator.onIncomingCall(callFrom("5551234567"))
         coordinator.onCallStateChanged(CallState.IDLE)
@@ -317,35 +324,49 @@ class IncomingCallCoordinatorTest {
 
         coordinator.onCallStateChanged(CallState.IDLE)
 
-        assertEquals(emptyList<String>(), recorder.calls)
+        assertEquals(emptyList<String>(), recorder.deviceMutations)
     }
 
     @Test
-    fun `OFFHOOK does not restore, because the call was answered and is still in progress`() =
-        runTest {
-            givenSuppressedPhoneAndOneContact()
-            coordinator.onIncomingCall(callFrom("5551234567"))
+    fun `OFFHOOK restores, because answering means the ringtone has done its job`() = runTest {
+        givenSuppressedPhoneAndOneContact()
+        coordinator.onIncomingCall(callFrom("5551234567"))
 
-            coordinator.onCallStateChanged(CallState.OFFHOOK)
+        coordinator.onCallStateChanged(CallState.OFFHOOK)
 
-            assertNotNull(
-                "dropping the ring volume mid-conversation achieves nothing, and the " +
-                    "call could still be rejected and re-ring",
-                restoreRepository.pending,
-            )
-        }
+        assertNull(
+            "the ring stream is not the in-call voice stream, so restoring at the " +
+                "moment of answering is inaudible to the conversation - and waiting " +
+                "would leave the watchdog to fire mid-call instead",
+            restoreRepository.pending,
+        )
+        assertEquals(RingerMode.VIBRATE, audio.ringerMode)
+    }
 
     @Test
-    fun `OFFHOOK does not consume the handled-ring flag, so the later IDLE still restores`() =
+    fun `a second restore after OFFHOOK is a harmless no-op`() = runTest {
+        givenSuppressedPhoneAndOneContact()
+        coordinator.onIncomingCall(callFrom("5551234567"))
+        coordinator.onCallStateChanged(CallState.OFFHOOK)
+
+        coordinator.onCallStateChanged(CallState.IDLE)
+
+        assertNull(restoreRepository.pending)
+        assertEquals(RingerMode.VIBRATE, audio.ringerMode)
+    }
+
+    @Test
+    fun `IDLE restores a snapshot left by a process that died before this one started`() =
         runTest {
+            // No onIncomingCall in THIS process: the snapshot is on disk from a
+            // process that has since been killed. A restore gated on an
+            // in-memory "we handled a ring" flag would skip this entirely.
             givenSuppressedPhoneAndOneContact()
-            coordinator.onIncomingCall(callFrom("5551234567"))
-            coordinator.onCallStateChanged(CallState.OFFHOOK)
+            restoreRepository.seed(testSnapshot(ringerMode = RingerMode.VIBRATE))
 
             coordinator.onCallStateChanged(CallState.IDLE)
 
             assertNull(restoreRepository.pending)
-            assertEquals(RingerMode.VIBRATE, audio.ringerMode)
         }
 
     @Test
@@ -366,12 +387,49 @@ class IncomingCallCoordinatorTest {
     fun `cold-start reconciliation restores a snapshot stranded by a process kill`() = runTest {
         givenSuppressedPhoneAndOneContact()
         coordinator.onIncomingCall(callFrom("5551234567"))
-        // The process dies here: no IDLE callback ever arrives.
+        // The process dies here: no IDLE callback ever arrives. By the time it
+        // restarts, telephony is idle again.
+        telephony.currentState = CallState.IDLE
 
         coordinator.reconcileStaleRestore()
 
         assertEquals(RingerMode.VIBRATE, audio.ringerMode)
         assertTrue(audit.hasType(AuditEventType.STALE_RESTORE_RECOVERED))
+    }
+
+    @Test
+    fun `cold-start reconciliation does NOT restore while a call is still ringing`() = runTest {
+        givenSuppressedPhoneAndOneContact()
+        coordinator.onIncomingCall(callFrom("5551234567"))
+        recorder.reset()
+
+        // The killed process is restarted BY the ringing call itself, so
+        // onCreate runs while that call is still ringing. Restoring now would
+        // put the phone back to vibrate and re-arm DND mid-ring - silencing the
+        // very call the app exists to make audible.
+        telephony.currentState = CallState.RINGING
+
+        coordinator.reconcileStaleRestore()
+
+        assertNotNull(
+            "the snapshot must stay on disk for the watchdog or the call-ended " +
+                "trigger to use once the call is actually over",
+            restoreRepository.pending,
+        )
+        assertEquals(emptyList<String>(), recorder.deviceMutations)
+    }
+
+    @Test
+    fun `cold-start reconciliation does NOT restore during an answered call`() = runTest {
+        givenSuppressedPhoneAndOneContact()
+        coordinator.onIncomingCall(callFrom("5551234567"))
+        recorder.reset()
+        telephony.currentState = CallState.OFFHOOK
+
+        coordinator.reconcileStaleRestore()
+
+        assertNotNull(restoreRepository.pending)
+        assertEquals(emptyList<String>(), recorder.deviceMutations)
     }
 
     @Test

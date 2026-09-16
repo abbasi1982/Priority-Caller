@@ -32,7 +32,7 @@ data class DashboardBanner(
     val message: String,
     val timestampEpochMs: Long,
 ) {
-    enum class Kind { RESTORE_FAILED, DND_INEFFECTIVE }
+    enum class Kind { RESTORE_FAILED, DND_INEFFECTIVE, SILENT_NOT_OVERRIDDEN }
 }
 
 data class DashboardUiState(
@@ -135,6 +135,13 @@ internal fun List<AuditLogEntry>.activeBanners(): List<DashboardBanner> = listOf
         // the only evidence available that DND is answering us again.
         resolvedBy = setOf(AuditEventType.DND_BYPASS_ATTEMPTED),
         kind = DashboardBanner.Kind.DND_INEFFECTIVE,
+    ),
+    unresolvedFailure(
+        failure = AuditEventType.SILENT_NOT_OVERRIDDEN,
+        // A later successful ringer change is the evidence that the phone is no
+        // longer stuck silent.
+        resolvedBy = setOf(AuditEventType.RINGER_MODE_CHANGED),
+        kind = DashboardBanner.Kind.SILENT_NOT_OVERRIDDEN,
     ),
 )
 

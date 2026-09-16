@@ -1,6 +1,7 @@
 package com.elham.priorityringer.data.local
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.elham.priorityringer.data.local.dao.AuditDao
 import com.elham.priorityringer.domain.model.AuditEventType
 import com.elham.priorityringer.domain.repository.AuditRepository
 import kotlinx.coroutines.test.runTest
@@ -48,10 +49,11 @@ class AuditLogDaoTest {
     private suspend fun insertSequentially(count: Int) {
         repeat(count) { index ->
             dao.insertAndTrim(
-                DaoTestSupport.auditEntity(
+                entity = DaoTestSupport.auditEntity(
                     timestampEpochMs = baseTimestamp + index,
                     message = "entry $index",
                 ),
+                max = AuditRepository.MAX_ENTRIES,
             )
         }
     }
@@ -115,12 +117,13 @@ class AuditLogDaoTest {
     @Test
     fun `an error entry is stored with its unrecoverable flag intact`() = runTest {
         dao.insertAndTrim(
-            DaoTestSupport.auditEntity(
+            entity = DaoTestSupport.auditEntity(
                 timestampEpochMs = baseTimestamp,
                 type = AuditEventType.RESTORATION_FAILED,
                 message = "Restore was incomplete",
                 recoverable = false,
             ),
+            max = AuditRepository.MAX_ENTRIES,
         )
 
         val stored = dao.getRecent(1).single()

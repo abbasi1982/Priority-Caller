@@ -139,6 +139,7 @@
       Architecture.md Addendum A.5. INERT and DEGRADED must not read alike:
       DEGRADED still does something useful, INERT does nothing whatsoever.
     -->
+    <string name="readiness_timing_note">Android tells the app about a call as it starts ringing, not before. The volume is raised during the first moment of the ringtone rather than ahead of it, so the very beginning of the ring may still be quiet.</string>
     <string name="readiness_armed_title">Priority ringing is active</string>
     <string name="readiness_armed_body">Everything the app needs has been granted. When an enabled priority contact calls, the app will raise the ring volume, switch out of Vibrate, and ask Do Not Disturb to let the call through — then put all of it back when the call ends. It cannot promise a call will be audible in Silent mode, or through a stricter Do Not Disturb set by you or the device.</string>
 
@@ -154,6 +155,7 @@
     <!-- ===================== Dashboard: rest ===================== -->
     <string name="banner_restore_failed_title">Your sound settings may not have been put back</string>
     <string name="banner_dnd_ineffective_title">Do Not Disturb ignored the app</string>
+    <string name="banner_silent_not_overridden_title">The phone stayed on Silent</string>
 
     <string name="dashboard_contacts_title">Priority contacts</string>
     <string name="dashboard_contacts_enabled">Enabled</string>

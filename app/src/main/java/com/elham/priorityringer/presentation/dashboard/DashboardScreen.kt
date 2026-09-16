@@ -110,12 +110,15 @@ private fun DashboardContent(
                     when (banner.kind) {
                         DashboardBanner.Kind.RESTORE_FAILED -> R.string.banner_restore_failed_title
                         DashboardBanner.Kind.DND_INEFFECTIVE -> R.string.banner_dnd_ineffective_title
+                        DashboardBanner.Kind.SILENT_NOT_OVERRIDDEN ->
+                            R.string.banner_silent_not_overridden_title
                     },
                 ),
                 message = banner.message,
                 severity = when (banner.kind) {
                     DashboardBanner.Kind.RESTORE_FAILED -> AuditSeverity.ERROR
                     DashboardBanner.Kind.DND_INEFFECTIVE -> AuditSeverity.WARNING
+                    DashboardBanner.Kind.SILENT_NOT_OVERRIDDEN -> AuditSeverity.WARNING
                 },
                 onDismiss = { onDismissBanner(banner.entryId) },
                 actionLabel = stringResource(R.string.action_view_audit_log),
@@ -285,6 +288,19 @@ private fun ReadinessCard(
                 Text(
                     stringResource(R.string.readiness_inert_emphasis),
                     style = MaterialTheme.typography.titleMedium,
+                )
+            }
+
+            // Shown precisely when the app looks healthiest. Test Mode makes
+            // the app feel instant because it skips telephony entirely, so an
+            // armed Dashboard is the one place a user could reasonably form the
+            // belief that volume is raised before the phone starts ringing.
+            // It is not, and that gap is a property of this detection path
+            // rather than a bug to be fixed later.
+            if (readiness != CapabilityReport.Readiness.INERT) {
+                Text(
+                    stringResource(R.string.readiness_timing_note),
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
 

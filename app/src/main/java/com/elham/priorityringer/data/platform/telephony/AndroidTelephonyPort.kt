@@ -85,6 +85,36 @@ class AndroidTelephonyPort @Inject constructor(
     }
 
     /**
+     * Synchronous state read for cold-start reconciliation.
+     *
+     * `getCallState()` is deprecated from API 31 in favour of the callback, but
+     * the callback cannot answer "what is happening *right now*" at process
+     * start — which is exactly the question a freshly restarted process has to
+     * ask before it restores anything. On 31+ the non-deprecated
+     * `callStateForSubscription` is used instead.
+     *
+     * Falls back to [CallState.IDLE] when the permission is missing or the read
+     * throws. Failing closed would mean never restoring, which would strand the
+     * device — the failure this whole subsystem exists to prevent.
+     */
+    @SuppressLint("MissingPermission")
+    override fun currentCallState(): CallState {
+        if (!hasPhoneStatePermission()) return CallState.IDLE
+
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                telephonyManager.callStateForSubscription.toDomain()
+            } else {
+                @Suppress("DEPRECATION")
+                telephonyManager.callState.toDomain()
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Could not read current call state; assuming IDLE")
+            CallState.IDLE
+        }
+    }
+
+    /**
      * § 5.3 — network ISO first, then SIM, then device locale.
      *
      * Network before SIM because a roaming phone's SIM country is the wrong

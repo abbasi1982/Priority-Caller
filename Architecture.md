@@ -530,11 +530,41 @@ The implementation therefore satisfies §17.5 by persisting the snapshot:
 Three independent restore triggers, all routed through one idempotent
 `RestoreAudioAndDnd`:
 
-| Trigger | Covers |
-|---|---|
-| `CallStateListener` → `IDLE` | normal path |
-| WorkManager watchdog at `autoRestoreTimeoutSeconds` | callback never arrived |
-| Cold-start reconciliation on app/receiver start | process was killed |
+| Trigger | Fires when | Covers |
+|---|---|---|
+| Call state → `OFFHOOK` or `IDLE` | answered, or ended | normal path |
+| WorkManager watchdog at `autoRestoreTimeoutSeconds` | no state change arrived | callback never came |
+| Cold-start reconciliation, **only while idle** | app/receiver start | process was killed |
+
+Three corrections to this design, each fixing a way the device could be left in
+the wrong state:
+
+**`OFFHOOK` restores too.** Restoring only on `IDLE` looked safer — why drop ring
+volume mid-conversation? — but it was wrong twice over. Once a call is answered
+the ringtone has stopped, so the raised volume and relaxed DND have already done
+their entire job; and the ring stream is not the in-call voice stream, so
+restoring it is inaudible to the conversation. Worse, *not* restoring left the
+watchdog armed during the call, so any call longer than
+`autoRestoreTimeoutSeconds` (90s by default) got the mid-conversation restore
+anyway — at an arbitrary moment rather than a chosen one. Restoring at the
+moment of answering is the earliest harmless point, and it retires the watchdog
+before it can fire.
+
+**Cold-start reconciliation must not restore during a live call.** The dangerous
+sequence: the process is killed mid-ring → the next `PHONE_STATE` broadcast
+restarts it → `Application.onCreate` runs → an unconditional restore puts the
+phone back to vibrate and re-arms DND **while the priority call is still
+ringing**, silencing the exact call the app exists to make audible. The same race
+lets a cold-start restore interleave with the apply for a second call. So
+reconciliation reads `TelephonyPort.currentCallState()` first and defers unless
+idle. Nothing is lost: the snapshot stays on disk, the WorkManager watchdog
+survived the process death, and the call-state trigger fires when the call is
+actually over.
+
+**No in-memory "did we apply anything?" flag guards restore.** Such a flag reads
+`false` after a process restart even though a snapshot is pending on disk — and
+would suppress precisely the restore that matters most. `RestoreAudioAndDnd` is
+idempotent and cheap when nothing is pending, so it is simply always called.
 
 Running restore three times is harmless; running it zero times is the only
 unacceptable outcome. `CallSnapshot` remains the in-memory domain model of §3 —

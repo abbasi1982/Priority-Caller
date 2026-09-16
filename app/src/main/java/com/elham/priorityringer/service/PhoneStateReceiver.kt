@@ -58,20 +58,28 @@ class PhoneStateReceiver : BroadcastReceiver() {
         when (state) {
             TelephonyManager.EXTRA_STATE_RINGING -> handleRinging(rawNumber)
 
-            TelephonyManager.EXTRA_STATE_IDLE -> {
-                // Belt-and-braces alongside the TelephonyCallback path (§ 5.2):
-                // the callback only runs while the process is alive, whereas
-                // this broadcast will restart it.
-                val pending = goAsync()
-                scope.launch {
-                    try {
-                        withTimeoutOrNull(WORK_TIMEOUT_MS) {
-                            coordinator.onCallStateChanged(CallState.IDLE)
-                        }
-                    } finally {
-                        pending.finish()
-                    }
+            // Both states restore. Belt-and-braces alongside the
+            // TelephonyCallback path (§ 5.2): the callback only runs while the
+            // process is alive, whereas this broadcast will restart it — which
+            // is precisely the case where a snapshot is stranded on disk.
+            TelephonyManager.EXTRA_STATE_OFFHOOK -> handleCallOver(CallState.OFFHOOK)
+
+            TelephonyManager.EXTRA_STATE_IDLE -> handleCallOver(CallState.IDLE)
+        }
+    }
+
+    /** The ringtone is over — answered or ended. Restore is idempotent. */
+    private fun handleCallOver(state: CallState) {
+        val pending = goAsync()
+        scope.launch {
+            try {
+                withTimeoutOrNull(WORK_TIMEOUT_MS) {
+                    coordinator.onCallStateChanged(state)
                 }
+            } catch (t: Throwable) {
+                Timber.e(t, "Error restoring after call state %s", state)
+            } finally {
+                pending.finish()
             }
         }
     }

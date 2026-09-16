@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.service.notification.Condition
 import android.service.notification.ZenPolicy
+import androidx.annotation.RequiresApi
 import com.elham.priorityringer.domain.model.DndBypassStrategy
 import com.elham.priorityringer.domain.model.FailureReason
 import com.elham.priorityringer.domain.model.InterruptionFilter
@@ -86,7 +87,7 @@ class AndroidDndPort @Inject constructor(
 
         val before = currentFilter()
 
-        val attempted = if (usesZenRuleBranch) {
+        val attempted = if (usesZenRuleBranch && Build.VERSION.SDK_INT >= 35) {
             applyViaZenRule()
         } else {
             applyViaGlobalFilter(strategy)
@@ -186,6 +187,7 @@ class AndroidDndPort @Inject constructor(
      * to a stricter manual DND, which is why the read-back in [applyBypass]
      * matters more here, not less.
      */
+    @RequiresApi(35)
     private fun applyViaZenRule(): Outcome<Unit> = try {
         val ruleId = createdZenRuleId ?: createZenRule()
         createdZenRuleId = ruleId
@@ -207,6 +209,14 @@ class AndroidDndPort @Inject constructor(
         Outcome.Failure(FailureReason.UNKNOWN, e.message, e)
     }
 
+    /**
+     * @throws Exception deliberately propagated to [applyViaZenRule], which
+     *   converts it to an [Outcome.Failure]. The rule creation APIs are the
+     *   least-verified part of this class (no API 35 device was available), so
+     *   a rejection must degrade to `DND_BYPASS_INEFFECTIVE` rather than crash
+     *   the app during an incoming call.
+     */
+    @RequiresApi(35)
     private fun createZenRule(): String {
         val policy = ZenPolicy.Builder()
             .allowCalls(ZenPolicy.PEOPLE_TYPE_ANYONE)
@@ -216,7 +226,22 @@ class AndroidDndPort @Inject constructor(
         val rule = AutomaticZenRule.Builder(ZEN_RULE_NAME, conditionUri(ZEN_RULE_NAME))
             .setZenPolicy(policy)
             .setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY)
-            .setOwner(ComponentName(context, AndroidDndPort::class.java))
+            // A *configuration activity*, not an owner.
+            //
+            // `setOwner` expects a ComponentName pointing at a
+            // ConditionProviderService — a real, declared service that the
+            // system binds to evaluate the rule's condition. Pointing it at
+            // this class, which is an ordinary injected object and not a
+            // Service at all, is rejected by the platform.
+            //
+            // This app drives the rule's state directly via
+            // setAutomaticZenRuleState, so it needs no condition provider. The
+            // configuration activity is the supported way for an app-managed
+            // rule to say where the user can go to adjust it, and it makes the
+            // rule tappable in system DND settings instead of a dead entry.
+            .setConfigurationActivity(
+                ComponentName(context, "com.elham.priorityringer.presentation.MainActivity"),
+            )
             .setEnabled(true)
             .build()
 
