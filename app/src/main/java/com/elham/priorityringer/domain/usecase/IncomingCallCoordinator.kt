@@ -4,6 +4,7 @@ import com.elham.priorityringer.domain.model.AuditEventType
 import com.elham.priorityringer.domain.model.CallMatchResult
 import com.elham.priorityringer.domain.model.CallState
 import com.elham.priorityringer.domain.model.IncomingCallEvent
+import com.elham.priorityringer.domain.model.Outcome
 import com.elham.priorityringer.domain.port.Clock
 import com.elham.priorityringer.domain.port.TelephonyPort
 import com.elham.priorityringer.domain.repository.AuditRepository
@@ -152,6 +153,27 @@ class IncomingCallCoordinator @Inject constructor(
         // so there is no inversion to deadlock on.
         mutex.withLock { restore(RestoreTrigger.CALL_ENDED) }
     }
+
+    /**
+     * Restore under the coordinator's lock, for callers outside the call path:
+     * the WorkManager watchdog and Test Mode's "Restore now".
+     *
+     * Exists so the invariant is "**every** restore holds the coordinator
+     * mutex" rather than "every restore except two". The watchdog happens to be
+     * protected by timing — it fires on the same deadline the expiry gate uses,
+     * so it should not overlap an apply — but that is an argument from
+     * scheduling, and scheduling arguments stop being true when someone changes
+     * a timeout. Test Mode has no such protection at all: tapping *Simulate*
+     * and *Restore now* together interleaves an apply and a restore directly.
+     *
+     * Routing both here costs one uncontended lock acquisition and removes the
+     * need to reason about either case.
+     *
+     * @return the restore outcome, so Test Mode can report what actually
+     *   happened rather than assuming success.
+     */
+    suspend fun restoreNow(trigger: RestoreTrigger): Outcome<Unit> =
+        mutex.withLock { restore(trigger) }
 
     /**
      * Trigger 3 — cold-start reconciliation (§ A.3).

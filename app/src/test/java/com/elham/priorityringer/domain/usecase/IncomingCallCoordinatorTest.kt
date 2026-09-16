@@ -4,6 +4,7 @@ import app.cash.turbine.test
 import com.elham.priorityringer.domain.escalation.EscalationPolicy
 import com.elham.priorityringer.domain.model.AuditEventType
 import com.elham.priorityringer.domain.model.CallState
+import com.elham.priorityringer.domain.model.FailureReason
 import com.elham.priorityringer.domain.model.IncomingCallEvent
 import com.elham.priorityringer.domain.model.InterruptionFilter
 import com.elham.priorityringer.domain.model.RingerMode
@@ -471,6 +472,47 @@ class IncomingCallCoordinatorTest {
                 restoreRepository.pending,
             )
             assertEquals(emptyList<String>(), recorder.deviceMutations)
+        }
+
+    // -----------------------------------------------------------------------
+    // restoreNow — the guarded entry point for the watchdog and Test Mode
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `restoreNow puts the device back and clears the snapshot`() = runTest {
+        givenSuppressedPhoneAndOneContact()
+        coordinator.onIncomingCall(callFrom("5551234567"))
+
+        val outcome = coordinator.restoreNow(RestoreTrigger.MANUAL)
+
+        assertTrue(outcome.isSuccess)
+        assertNull(restoreRepository.pending)
+        assertEquals(RingerMode.VIBRATE, audio.ringerMode)
+    }
+
+    /**
+     * Unlike the cold-start path, restoreNow has no expiry gate — the watchdog
+     * fires precisely because the deadline passed, and a user tapping "Restore
+     * now" is asking for it unconditionally.
+     */
+    @Test
+    fun `restoreNow ignores the snapshot deadline that gates cold start`() = runTest {
+        givenSuppressedPhoneAndOneContact()
+        coordinator.onIncomingCall(callFrom("5551234567"))
+        telephony.currentState = CallState.RINGING
+
+        coordinator.restoreNow(RestoreTrigger.WATCHDOG_TIMEOUT)
+
+        assertNull(restoreRepository.pending)
+    }
+
+    @Test
+    fun `restoreNow with nothing pending reports NOTHING_TO_DO rather than failing loudly`() =
+        runTest {
+            val outcome = coordinator.restoreNow(RestoreTrigger.MANUAL)
+
+            assertEquals(FailureReason.NOTHING_TO_DO, outcome.failureOrNull()?.reason)
+            assertTrue(recorder.deviceMutations.isEmpty())
         }
 
     @Test

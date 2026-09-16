@@ -14,7 +14,6 @@ import com.elham.priorityringer.domain.usecase.BuildCapabilityReportUseCase
 import com.elham.priorityringer.domain.usecase.IncomingCallCoordinator
 import com.elham.priorityringer.domain.usecase.ObservePriorityContactsUseCase
 import com.elham.priorityringer.domain.usecase.ObserveSettingsUseCase
-import com.elham.priorityringer.domain.usecase.RestoreAudioAndDndUseCase
 import com.elham.priorityringer.domain.usecase.RestoreTrigger
 import com.elham.priorityringer.domain.usecase.SeedEscalationHistoryUseCase
 import com.elham.priorityringer.domain.usecase.SimulatePriorityCallUseCase
@@ -68,11 +67,10 @@ sealed interface TestModeEffect {
 class TestModeViewModel @Inject constructor(
     private val buildCapabilityReport: BuildCapabilityReportUseCase,
     private val simulatePriorityCall: SimulatePriorityCallUseCase,
-    private val restoreAudioAndDnd: RestoreAudioAndDndUseCase,
     private val seedEscalationHistory: SeedEscalationHistoryUseCase,
     private val observeSettings: ObserveSettingsUseCase,
     observeContacts: ObservePriorityContactsUseCase,
-    coordinator: IncomingCallCoordinator,
+    private val coordinator: IncomingCallCoordinator,
 ) : ViewModel() {
 
     private val report = MutableStateFlow<CapabilityReport?>(null)
@@ -186,12 +184,17 @@ class TestModeViewModel @Inject constructor(
 
     /**
      * Architecture.md § 9 requires an explicit, always-available "Restore now".
-     * It routes through the same idempotent use case as the three automatic
-     * triggers, so pressing it when nothing is pending is a safe no-op.
+     *
+     * Routed through the coordinator rather than the restore use case directly,
+     * so it takes the same lock an apply does. Without that, tapping *Simulate*
+     * and *Restore now* together interleaves an apply and a restore — the one
+     * place in the app where a user can trigger that race by hand.
+     *
+     * Idempotent, so pressing it when nothing is pending is a safe no-op.
      */
     fun restoreNow() {
         viewModelScope.launch {
-            val outcome = restoreAudioAndDnd(RestoreTrigger.MANUAL)
+            val outcome = coordinator.restoreNow(RestoreTrigger.MANUAL)
             restorePending.value = false
             refresh()
             emit(

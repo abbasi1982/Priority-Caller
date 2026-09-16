@@ -8,7 +8,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.elham.priorityringer.domain.port.SchedulerPort
-import com.elham.priorityringer.domain.usecase.RestoreAudioAndDndUseCase
+import com.elham.priorityringer.domain.usecase.IncomingCallCoordinator
 import com.elham.priorityringer.domain.usecase.RestoreTrigger
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -63,7 +63,7 @@ class WorkManagerSchedulerPort @Inject constructor(
  * Fires when a call-end signal never arrived.
  *
  * Always returns [Result.success]: a retry would re-run a restore that
- * [RestoreAudioAndDndUseCase] has already made idempotent, and a `Result.retry`
+ * the restore path has already made idempotent, and a `Result.retry`
  * loop against a device that is refusing the change would achieve nothing but
  * battery drain. Whether the restore actually worked is recorded in the audit
  * log, which is where the user can see it.
@@ -72,12 +72,17 @@ class WorkManagerSchedulerPort @Inject constructor(
 class RestoreWatchdogWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val restore: RestoreAudioAndDndUseCase,
+    private val coordinator: IncomingCallCoordinator,
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
         Timber.i("Restore watchdog fired")
-        runCatching { restore(RestoreTrigger.WATCHDOG_TIMEOUT) }
+        // Via the coordinator, not the use case directly, so this takes the
+        // same lock an apply does. Timing alone should keep them apart — the
+        // watchdog fires on the same deadline the cold-start expiry gate uses —
+        // but that is an argument from scheduling, and it stops holding the
+        // moment someone changes a timeout.
+        runCatching { coordinator.restoreNow(RestoreTrigger.WATCHDOG_TIMEOUT) }
             .onFailure { Timber.e(it, "Watchdog restore failed") }
         return Result.success()
     }

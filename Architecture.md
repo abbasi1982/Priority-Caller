@@ -574,8 +574,18 @@ fast, so `OFFHOOK` arrives while the `RINGING` apply is still inside its
 row and cancels the watchdog, all while apply is still raising the volume. The
 device ends up modified with no pending snapshot and no watchdog — the stranded
 state this subsystem exists to prevent, reached by the machinery meant to
-prevent it. All three entry points therefore take the coordinator's mutex, and
-lock ordering is always coordinator → restore.
+prevent it. All entry points therefore take the coordinator's mutex, and lock
+ordering is always coordinator → restore.
+
+That includes the two callers outside the call path — the WorkManager watchdog
+and Test Mode's "Restore now" — which reach restore through
+`IncomingCallCoordinator.restoreNow()`. The invariant is deliberately "**every**
+restore holds the coordinator mutex", not "every restore except two". The
+watchdog happens to be protected by timing, since it fires on the same deadline
+the expiry gate uses; but that is an argument from scheduling, and scheduling
+arguments stop being true when someone changes a timeout. Test Mode has no such
+protection at all: *Simulate* and *Restore now* tapped together is the one race
+in the app a user can trigger by hand.
 
 **Cold-start reconciliation trusts the snapshot's own deadline, not telephony.**
 `currentCallState()` fails open to `IDLE` — on a missing permission, on a read
