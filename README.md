@@ -34,9 +34,18 @@ to be clear about exactly where the line falls.
   sources.
 - `./gradlew assembleDebug` — `BUILD SUCCESSFUL`, so packaging and dexing work
   and a real APK comes out. Lint has not been run.
-- `./gradlew :app:assembleDebugAndroidTest` — `BUILD SUCCESSFUL`. All seven
-  instrumented test classes compile and dex, and the test APK builds. That is a
-  compile check, not a run.
+- `./gradlew :app:connectedDebugAndroidTest` — **49 instrumented tests, green**,
+  on an API 35 emulator (`google_apis;x86_64`, Android 15, `networkCountryIso`
+  = `us`). That is 41 Room tests (five DAO classes plus `MigrationTest`, which
+  reads the committed schema) and the 8 in `PlatformNumberMatchTest`.
+
+An emulator settles the Room half honestly — SQLite, the schema, the 500-entry
+trim and the singular-row invariants do not care what hardware they run on.
+It does **not** settle `PlatformNumberMatchTest`: that test exists to probe
+`config_phonenumber_compare_min_match` and `config_use_strict_phone_number_
+comparison`, which are per-device values. Green on a stock AOSP emulator means
+the test is sound and the app's assumption holds *there*. Re-run it on the
+actual phone.
 
 The Gradle wrapper is committed and usable, dependency versions in
 `gradle/libs.versions.toml` resolved as written, and Room's exported schema is
@@ -44,32 +53,32 @@ checked in at `app/schemas/…/1.json`.
 
 **Not verified — and this is the part that matters:**
 
-- **No instrumented run.** `connectedAndroidTest` has never executed. The seven
-  classes — five DAO tests, `MigrationTest`, `PlatformNumberMatchTest` — compile
-  and dex, but not one assertion in them has ever been evaluated. That needs a
-  device or emulator.
+- **Nothing has run on real hardware.** Every green result above is an emulator
+  result. An emulator has no carrier, no OEM skin, no real SIM and no
+  manufacturer DND implementation — which is precisely where this app's
+  promises get decided.
 - **No device matrix.** The behaviour this app exists for — Vibrate, Silent, DND
   on and off, a long answered call, and killing the process mid-ring — has not
   been exercised on real hardware, or an emulator. Those are the cases where the
   restore subsystem either holds or leaves a phone stranded off DND at raised
   volume, and no unit test can settle them.
 - **No Compose UI tests.** Planned, never written, so there is nothing to run.
-- **`PhoneNumberUtils.compare` is written but unrun.**
-  `PlatformNumberMatchTest` covers it (`ImplementationPlan.md` § Phase 2) and
-  must run on the device session alongside the matrix. `AndroidTelephonyPort`
-  calls `compare` as an additional accept on top of `PhoneNumberNormalizer`, so
-  it can only *add* matches — which means the risk it carries is a false
-  positive, making the **wrong** caller loud in DND, not a missed call. The test
-  is asymmetric for that reason: must-not-match pairs are asserted against the
-  platform call and the composed predicate separately, must-match pairs only
-  against the composed predicate.
+- **`PhoneNumberUtils.compare` has not been probed on the target phone.**
+  `PlatformNumberMatchTest` passes on the emulator, which tells you the test is
+  sound, not that the phone agrees. `AndroidTelephonyPort` calls `compare` as an
+  additional accept on top of `PhoneNumberNormalizer`, so it can only *add*
+  matches — which means the risk it carries is a false positive, making the
+  **wrong** caller loud in DND, not a missed call. The test is asymmetric for
+  that reason: must-not-match pairs are asserted against the platform call and
+  the composed predicate separately, must-match pairs only against the composed
+  predicate. Run it on the phone during the device session.
 - **Lock ordering is reasoned, not executed.** Restore always takes the
   coordinator mutex before the restore mutex, never the reverse. That is an
   argument from reading the code; a deadlock under a real fast-answer is exactly
   the class of bug that reads fine.
 
-So: the tree compiles and its unit tests are green. That moves it from "never
-built" to "unproven on a phone". **Do not sideload it onto a family member's
+So: the tree builds, and 216 tests pass — 167 on the JVM, 49 on an emulator.
+That moves it from "never built" to "unproven on a phone". **Do not sideload it onto a family member's
 phone** until the device matrix above has been run.
 
 Nothing below this section should be read as "verified on a device". It
@@ -208,8 +217,20 @@ If `java` is not on your `PATH`, set `JAVA_HOME` to your JDK 17 install first.
 ./gradlew :app:testDebugUnitTest              # 167 JVM unit tests — known green
 ./gradlew assembleDebug                       # build the debug APK
 ./gradlew installDebug                        # build + install onto a connected device
-./gradlew connectedAndroidTest                # instrumented tests — never yet run
+./gradlew connectedAndroidTest                # instrumented tests — needs a device
 ```
+
+To reproduce the emulator the instrumented tests were run on:
+
+```bash
+sdkmanager "emulator" "system-images;android-35;google_apis;x86_64"
+avdmanager create avd -n pr_api35 -k "system-images;android-35;google_apis;x86_64" -d pixel_6
+emulator -avd pr_api35 -no-snapshot -no-boot-anim -no-audio
+```
+
+Wait for `adb shell getprop sys.boot_completed` to return `1` before running the
+tests. A run started while the emulator is still settling fails as
+`Process crashed` with zero tests started — that is the emulator, not the tree.
 
 The APK lands in `app/build/outputs/apk/debug/`.
 
