@@ -6,6 +6,7 @@ import androidx.work.Configuration
 import com.elham.priorityringer.di.ApplicationScope
 import com.elham.priorityringer.domain.port.TelephonyPort
 import com.elham.priorityringer.domain.usecase.IncomingCallCoordinator
+import com.elham.priorityringer.domain.usecase.RecordAudibleRingIndexUseCase
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +21,8 @@ class PriorityRingerApp : Application(), Configuration.Provider {
     @Inject lateinit var coordinator: IncomingCallCoordinator
 
     @Inject lateinit var telephonyPort: TelephonyPort
+
+    @Inject lateinit var recordAudibleRingIndex: RecordAudibleRingIndexUseCase
 
     @Inject @ApplicationScope lateinit var scope: CoroutineScope
 
@@ -39,6 +42,25 @@ class PriorityRingerApp : Application(), Configuration.Provider {
 
         reconcileStaleRestore()
         observeCallState()
+        rememberAudibleRingLevel()
+    }
+
+    /**
+     * Learn the user's own ring level while the phone happens to be audible.
+     *
+     * Sampling at apply time alone is not enough: on a phone that lives on
+     * Silent, apply never sees an audible level, so there would be nothing to
+     * put back. Every app start is another chance to catch one.
+     *
+     * Deliberately cheap and deliberately picky — [RecordAudibleRingIndexUseCase]
+     * declines to record anything while a restore is pending or the ringer is
+     * not NORMAL, so this cannot learn the app's own raised volume.
+     */
+    private fun rememberAudibleRingLevel() {
+        scope.launch {
+            runCatching { recordAudibleRingIndex() }
+                .onFailure { Timber.w(it, "Could not sample the audible ring level") }
+        }
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.elham.priorityringer.domain.usecase
 
+import com.elham.priorityringer.domain.model.AppSettings
 import com.elham.priorityringer.domain.model.AuditEventType
 import com.elham.priorityringer.domain.model.FailureReason
 import com.elham.priorityringer.domain.model.InterruptionFilter
@@ -14,6 +15,7 @@ import com.elham.priorityringer.fake.FakeClock
 import com.elham.priorityringer.fake.FakeDndPort
 import com.elham.priorityringer.fake.FakeRestoreRepository
 import com.elham.priorityringer.fake.FakeSchedulerPort
+import com.elham.priorityringer.fake.FakeSettingsRepository
 import com.elham.priorityringer.fake.testSnapshot
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -42,6 +44,7 @@ class RestoreAudioAndDndUseCaseTest {
     private val alert = FakeAlertPort(recorder)
     private val scheduler = FakeSchedulerPort(recorder)
     private val restoreRepository = FakeRestoreRepository(recorder)
+    private val settings = FakeSettingsRepository()
     private val audit = FakeAuditRepository()
     private val clock = FakeClock()
 
@@ -51,6 +54,7 @@ class RestoreAudioAndDndUseCaseTest {
         alert = alert,
         scheduler = scheduler,
         restoreRepository = restoreRepository,
+        settings = settings,
         audit = audit,
         clock = clock,
     )
@@ -594,5 +598,92 @@ class RestoreAudioAndDndUseCaseTest {
             "a refused write in the one mode that writes must be reported: $message",
             message.contains("volume NOTIFICATION_POLICY_ACCESS_DENIED"),
         )
+    }
+
+    // ------------------------------------------------- the audible ring level
+    //
+    // A phone that lives on Silent has an audible level the user chose, which
+    // Android will not show us while it is silent (getStreamVolume reports 0,
+    // and the platform's own "last audible" value is @hide). Apply overwrites
+    // it on the way up. Without putting it back, the user finds the app's
+    // volume days later when they unsilence the phone by hand.
+
+    @Test
+    fun `the remembered audible level is written back before the phone is silenced`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.SILENT,
+            snapshotVolumeIndex = 0,
+        )
+        settings.set(AppSettings(lastAudibleRingIndex = 6))
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        assertEquals(
+            "the user's own level, not the snapshot's 0 and not the app's raised level",
+            listOf(6),
+            audio.volumeRawRequests,
+        )
+        assertEquals(
+            "and the phone still ends up silent",
+            RingerMode.SILENT,
+            audio.ringerMode,
+        )
+    }
+
+    @Test
+    fun `the level is written before the mode, because after is impossible`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.SILENT,
+            snapshotVolumeIndex = 0,
+        )
+        settings.set(AppSettings(lastAudibleRingIndex = 6))
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        val volumeAt = recorder.calls.indexOf(CallRecorder.SET_VOLUME_RAW)
+        val ringerAt = recorder.calls.indexOf(CallRecorder.SET_RINGER)
+        assertTrue(
+            "once the phone is silent any non-zero write would unsilence it: ${recorder.calls}",
+            volumeAt in 0 until ringerAt,
+        )
+    }
+
+    @Test
+    fun `nothing is written when the app has never seen this phone audible`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.SILENT,
+            snapshotVolumeIndex = 0,
+        )
+        settings.set(AppSettings(lastAudibleRingIndex = null))
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        assertEquals(
+            "unknown is not a volume; a guess would be worse than leaving it",
+            emptyList<Int>(),
+            audio.volumeRawRequests,
+        )
+        assertEquals(RingerMode.SILENT, audio.ringerMode)
+    }
+
+    @Test
+    fun `no level is written if the phone is already silent, which would unsilence it`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot(
+            snapshotMode = RingerMode.SILENT,
+            snapshotVolumeIndex = 0,
+        )
+        settings.set(AppSettings(lastAudibleRingIndex = 6))
+        // A previous restore already put the phone back, or the user did.
+        audio.ringerMode = RingerMode.SILENT
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        assertEquals(
+            "writing a non-zero index here would take the phone OUT of silent — " +
+                "the loud-bedroom failure this subsystem exists to prevent",
+            emptyList<Int>(),
+            audio.volumeRawRequests,
+        )
+        assertEquals(RingerMode.SILENT, audio.ringerMode)
     }
 }

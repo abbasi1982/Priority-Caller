@@ -18,14 +18,17 @@ import com.elham.priorityringer.data.local.entity.SETTINGS_ROW_ID
 import com.elham.priorityringer.domain.model.AppSettings
 
 /**
- * Architecture.md § 10 — version 1, schema exported to `app/schemas/`.
+ * Architecture.md § 10 — version 2, schema exported to `app/schemas/`.
+ *
+ * Version 2 adds `app_settings.lastAudibleRingIndex`; see
+ * [PriorityRingerDatabaseMigrations.MIGRATION_1_2].
  *
  * `exportSchema = true` is not optional here: the androidTest source set adds
  * `app/schemas` as an assets directory precisely so migration tests can read
  * the committed JSON. Turning it off would silently disable those tests.
  */
 @Database(
-    version = 1,
+    version = 2,
     exportSchema = true,
     entities = [
         PriorityContactEntity::class,

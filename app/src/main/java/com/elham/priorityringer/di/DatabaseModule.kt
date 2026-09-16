@@ -3,6 +3,7 @@ package com.elham.priorityringer.di
 import android.content.Context
 import androidx.room.Room
 import com.elham.priorityringer.data.local.PriorityRingerDatabase
+import com.elham.priorityringer.data.local.PriorityRingerDatabaseMigrations
 import com.elham.priorityringer.data.local.SettingsPrepopulateCallback
 import com.elham.priorityringer.data.local.dao.AuditDao
 import com.elham.priorityringer.data.local.dao.ContactDao
@@ -39,6 +40,10 @@ object DatabaseModule {
         PriorityRingerDatabase.NAME,
     )
         .addCallback(SettingsPrepopulateCallback())
+        // Hand-written migrations, never fallbackToDestructiveMigration: a
+        // destructive fallback would delete the user's priority contacts on an
+        // update and leave the app looking configured while ringing for nobody.
+        .addMigrations(*PriorityRingerDatabaseMigrations.ALL)
         .build()
 
     @Provides

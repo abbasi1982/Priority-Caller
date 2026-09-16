@@ -92,6 +92,7 @@ fun AppSettingsEntity.toDomain(): AppSettings = AppSettings(
     autoRestoreTimeoutSeconds = autoRestoreTimeoutSeconds,
     loggingEnabled = loggingEnabled,
     dndBypassStrategy = dndBypassStrategy,
+    lastAudibleRingIndex = lastAudibleRingIndex,
 )
 
 fun AppSettings.toEntity(): AppSettingsEntity = AppSettingsEntity(

@@ -98,6 +98,20 @@ data class AppSettingsEntity(
     val autoRestoreTimeoutSeconds: Int,
     val loggingEnabled: Boolean,
     val dndBypassStrategy: DndBypassStrategy,
+    /**
+     * Last ring-stream index observed while the phone was actually audible.
+     *
+     * Not a user setting — a device observation that happens to need the same
+     * durable single row. It exists because Android gives no supported way to
+     * read the audible level while the phone is silent: `getStreamVolume`
+     * reports 0, and the platform's own "last audible" value is `@hide`. So the
+     * app remembers what it saw when it could see it.
+     *
+     * Nullable on purpose: until the app has seen the phone audible at least
+     * once, the honest value is "unknown", and restore then leaves the level
+     * alone rather than guessing.
+     */
+    val lastAudibleRingIndex: Int? = null,
 )
 
 /** The only id either single-row table ever uses. */

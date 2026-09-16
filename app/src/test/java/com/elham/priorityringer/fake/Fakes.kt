@@ -508,6 +508,18 @@ class FakeSettingsRepository(initial: AppSettings = AppSettings()) : SettingsRep
         state.value = settings.validated()
     }
 
+    /**
+     * Single-field write, mirroring the real repository: a device observation
+     * must not round-trip the user's settings.
+     */
+    override suspend fun recordAudibleRingIndex(index: Int) {
+        state.value = state.value.copy(lastAudibleRingIndex = index)
+        recordedAudibleIndices += index
+    }
+
+    /** Every index recorded, in order, so tests can assert what was learned. */
+    val recordedAudibleIndices = mutableListOf<Int>()
+
     /** Sets without clamping, so a test can install deliberately odd values. */
     fun set(settings: AppSettings) {
         state.value = settings

@@ -75,6 +75,11 @@ class IncomingCallCoordinatorTest {
         escalationRepository = escalationRepository,
         audit = audit,
         escalationPolicy = EscalationPolicy(),
+        recordAudibleRingIndex = RecordAudibleRingIndexUseCase(
+            audio = audio,
+            settings = settings,
+            restoreRepository = restoreRepository,
+        ),
         clock = clock,
     )
 
@@ -84,6 +89,7 @@ class IncomingCallCoordinatorTest {
         alert = alert,
         scheduler = scheduler,
         restoreRepository = restoreRepository,
+        settings = settings,
         audit = audit,
         clock = clock,
     )

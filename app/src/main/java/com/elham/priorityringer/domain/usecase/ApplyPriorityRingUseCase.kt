@@ -78,6 +78,7 @@ class ApplyPriorityRingUseCase @Inject constructor(
     private val escalationRepository: EscalationRepository,
     private val audit: AuditRepository,
     private val escalationPolicy: EscalationPolicy,
+    private val recordAudibleRingIndex: RecordAudibleRingIndexUseCase,
     private val clock: Clock,
 ) {
 
@@ -101,6 +102,14 @@ class ApplyPriorityRingUseCase @Inject constructor(
         val escalation = evaluateEscalation(contact, settings, now)
 
         // ---- 2. Capture → persist → schedule, BEFORE touching anything ----
+        //
+        // The audible level is sampled here, before any mutation, because this
+        // is the last moment it is the user's own. If the phone is audible
+        // right now, this is their level; if it is silent, the reading is
+        // worthless and the use case declines to record it, leaving whatever
+        // was learned earlier.
+        recordAudibleRingIndex()
+
         val snapshot = captureSnapshot(now, settings)
         val snapshotSaved = restoreRepository.saveIfAbsent(snapshot)
 

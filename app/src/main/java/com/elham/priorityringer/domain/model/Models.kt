@@ -233,6 +233,12 @@ data class AppSettings(
      */
     val loggingEnabled: Boolean = true,
     val dndBypassStrategy: DndBypassStrategy = DndBypassStrategy.PRIORITY_ALLOW_CALLS,
+    /**
+     * Last ring index seen while the phone was audible, or `null` if the app
+     * has never seen it. Observed, not configured — see the entity for why it
+     * has to be remembered rather than read on demand.
+     */
+    val lastAudibleRingIndex: Int? = null,
 ) {
     fun validated(): AppSettings = copy(
         ringtoneVolumePercent = ringtoneVolumePercent.coerceIn(MIN_VOLUME_PERCENT, 100),

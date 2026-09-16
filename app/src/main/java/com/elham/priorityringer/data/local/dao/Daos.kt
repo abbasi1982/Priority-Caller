@@ -164,6 +164,14 @@ interface SettingsDao {
     @Upsert
     suspend fun upsert(entity: AppSettingsEntity)
 
+    /**
+     * Written on its own rather than through [upsert] so that recording a
+     * device observation can never overwrite a setting the user is editing at
+     * the same moment.
+     */
+    @Query("UPDATE app_settings SET lastAudibleRingIndex = :index WHERE id = 1")
+    suspend fun setLastAudibleRingIndex(index: Int)
+
     /** Test affordance — asserts the table stays a single row. */
     @Query("SELECT COUNT(*) FROM app_settings")
     suspend fun count(): Int

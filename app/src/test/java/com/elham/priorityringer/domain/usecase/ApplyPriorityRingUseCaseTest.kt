@@ -17,6 +17,7 @@ import com.elham.priorityringer.fake.FakeDndPort
 import com.elham.priorityringer.fake.FakeEscalationRepository
 import com.elham.priorityringer.fake.FakeRestoreRepository
 import com.elham.priorityringer.fake.FakeSchedulerPort
+import com.elham.priorityringer.fake.FakeSettingsRepository
 import com.elham.priorityringer.fake.testContact
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -56,6 +57,7 @@ class ApplyPriorityRingUseCaseTest {
 
     private val contact = testContact()
     private val settings = AppSettings()
+    private val settingsRepository = FakeSettingsRepository()
 
     private val useCase = ApplyPriorityRingUseCase(
         audio = audio,
@@ -66,6 +68,11 @@ class ApplyPriorityRingUseCaseTest {
         escalationRepository = escalationRepository,
         audit = audit,
         escalationPolicy = EscalationPolicy(),
+        recordAudibleRingIndex = RecordAudibleRingIndexUseCase(
+            audio = audio,
+            settings = settingsRepository,
+            restoreRepository = restoreRepository,
+        ),
         clock = clock,
     )
 

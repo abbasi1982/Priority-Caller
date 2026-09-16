@@ -43,4 +43,8 @@ class SettingsRepositoryImpl @Inject constructor(
     override suspend fun update(settings: AppSettings) = withContext(io) {
         dao.upsert(settings.validated().toEntity())
     }
+
+    override suspend fun recordAudibleRingIndex(index: Int) = withContext(io) {
+        dao.setLastAudibleRingIndex(index)
+    }
 }

@@ -4,6 +4,8 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.elham.priorityringer.data.local.PriorityRingerDatabase
+import com.elham.priorityringer.data.local.PriorityRingerDatabaseMigrations
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -12,24 +14,18 @@ import org.junit.runner.RunWith
 /**
  * Room schema and migration scaffolding (Architecture.md § 10, § 14).
  *
- * At version 1 there is nothing to migrate yet, so this file does two things:
+ * Two things are covered:
  *
- *  1. **Proves the schema is actually exported.** `MigrationTestHelper` reads
- *     `app/schemas/<database class>/1.json` from the androidTest assets
+ *  1. **The schema really is exported.** `MigrationTestHelper` reads
+ *     `app/schemas/<database class>/<version>.json` from the androidTest assets
  *     (wired up in `app/build.gradle.kts` via
  *     `androidTest.assets.srcDir("$projectDir/schemas")`). If KSP's
  *     `room.schemaLocation` argument is ever dropped, `createDatabase` fails
- *     here rather than silently leaving future migrations untestable — which is
- *     the failure mode this test really guards against.
- *  2. **Leaves the v1 → v2 case ready to switch on**, so adding a migration is
- *     an edit rather than a new piece of test infrastructure.
- *
- * ---------------------------------------------------------------------------
- * PROVISIONAL: `PriorityRingerDatabase` and its package are inferred from
- * ImplementationPlan.md Phase 1; see `data/local/DaoTestSupport.kt`. This test
- * cannot pass until the Room layer exists **and** a build has exported
- * `app/schemas/…/1.json` (that directory is currently empty).
- * ---------------------------------------------------------------------------
+ *     here rather than silently leaving future migrations untestable.
+ *  2. **The 1 -> 2 migration keeps the user's data.** That is the one that
+ *     matters on a real phone: a migration that drops `priority_contacts`
+ *     leaves the app installed and looking configured while ringing for
+ *     nobody, with no error anywhere.
  */
 @RunWith(AndroidJUnit4::class)
 class MigrationTest {
@@ -59,40 +55,72 @@ class MigrationTest {
         database.close()
     }
 
-    // -----------------------------------------------------------------------
-    // Ready for version 2
-    // -----------------------------------------------------------------------
-    //
-    // When PriorityRingerDatabase moves to version 2, define the migration in
-    // data/local (e.g. `PriorityRingerDatabaseMigrations.MIGRATION_1_2`), then enable:
-    //
-    // @Test
-    // fun `data_written_at_version_1_survives_the_migration_to_version_2`() {
-    //     helper.createDatabase(TEST_DB, 1).apply {
-    //         execSQL(
-    //             "INSERT INTO priority_contacts " +
-    //                 "(display_name, original_input, match_key, e164, enabled, created_at) " +
-    //                 "VALUES ('Mum', '+15551234567', '1234567', '+15551234567', 1, 0)",
-    //         )
-    //         close()
-    //     }
-    //
-    //     val migrated = helper.runMigrationsAndValidate(
-    //         TEST_DB,
-    //         2,
-    //         true,
-    //         PriorityRingerDatabaseMigrations.MIGRATION_1_2,
-    //     )
-    //
-    //     // MigrationTestHelper validates the schema itself; only the data
-    //     // needs asserting here — a migration that drops the user's priority
-    //     // contacts would make the app silently inert after an update.
-    //     migrated.query("SELECT COUNT(*) FROM priority_contacts").use { cursor ->
-    //         cursor.moveToFirst()
-    //         assertEquals(1, cursor.getInt(0))
-    //     }
-    //     migrated.close()
-    // }
+    @Test
+    fun `the_version_2_schema_is_exported_and_can_be_created_from_it`() {
+        val database = helper.createDatabase(TEST_DB, 2)
+
+        assertTrue(database.isOpen)
+        database.close()
+    }
+
+    @Test
+    fun `data_written_at_version_1_survives_the_migration_to_version_2`() {
+        helper.createDatabase(TEST_DB, 1).apply {
+            execSQL(
+                "INSERT INTO priority_contacts " +
+                    "(displayName, originalInput, matchKey, e164, enabled, createdAtEpochMs) " +
+                    "VALUES ('Mum', '+15551234567', '1234567', '+15551234567', 1, 0)",
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DB,
+            2,
+            true,
+            PriorityRingerDatabaseMigrations.MIGRATION_1_2,
+        )
+
+        // runMigrationsAndValidate checks the schema itself. Only the data
+        // needs asserting here.
+        migrated.query("SELECT displayName FROM priority_contacts").use { cursor ->
+            assertTrue("the contact must survive the migration", cursor.moveToFirst())
+            assertEquals("Mum", cursor.getString(0))
+        }
+        migrated.close()
+    }
+
+    @Test
+    fun `the_new_column_starts_null_meaning_never_observed`() {
+        helper.createDatabase(TEST_DB, 1).apply {
+            execSQL(
+                "INSERT INTO app_settings (id, ringtoneVolumePercent, escalationEnabled, " +
+                    "escalationPrimaryCallCount, escalationPrimaryWindowMinutes, " +
+                    "escalationSecondaryCallCount, escalationSecondaryWindowMinutes, " +
+                    "autoRestoreTimeoutSeconds, loggingEnabled, dndBypassStrategy) " +
+                    "VALUES (1, 80, 1, 2, 5, 3, 10, 90, 1, 'PRIORITY_ALLOW_CALLS')",
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DB,
+            2,
+            true,
+            PriorityRingerDatabaseMigrations.MIGRATION_1_2,
+        )
+
+        // NULL is load-bearing: it means "the app has never seen this phone
+        // audible", which restore treats differently from any volume value.
+        migrated.query("SELECT lastAudibleRingIndex FROM app_settings WHERE id = 1").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(
+                "an upgraded install must not start with a fabricated ring level",
+                cursor.isNull(0),
+            )
+        }
+        migrated.close()
+    }
 
     private companion object {
         const val TEST_DB = "migration-test"

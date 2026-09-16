@@ -63,6 +63,15 @@ interface SettingsRepository {
 
     /** Values are clamped via [AppSettings.validated] before writing. */
     suspend fun update(settings: AppSettings)
+
+    /**
+     * Record the ring index seen while the phone was audible.
+     *
+     * A single-field write rather than [update] of a whole [AppSettings]: this
+     * is a background observation, and round-tripping the user's settings
+     * through it could overwrite an edit they are making at that moment.
+     */
+    suspend fun recordAudibleRingIndex(index: Int)
 }
 
 /**

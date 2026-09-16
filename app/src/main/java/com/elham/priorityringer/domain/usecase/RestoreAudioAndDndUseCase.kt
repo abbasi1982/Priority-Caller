@@ -13,6 +13,7 @@ import com.elham.priorityringer.domain.port.DndPort
 import com.elham.priorityringer.domain.port.SchedulerPort
 import com.elham.priorityringer.domain.repository.AuditRepository
 import com.elham.priorityringer.domain.repository.RestoreRepository
+import com.elham.priorityringer.domain.repository.SettingsRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
@@ -65,6 +66,7 @@ class RestoreAudioAndDndUseCase @Inject constructor(
     private val alert: AlertPort,
     private val scheduler: SchedulerPort,
     private val restoreRepository: RestoreRepository,
+    private val settings: SettingsRepository,
     private val audit: AuditRepository,
     private val clock: Clock,
 ) {
@@ -95,14 +97,19 @@ class RestoreAudioAndDndUseCase @Inject constructor(
 
         // Each restore is attempted regardless of the others' outcomes.
         //
-        // **Ringer mode before volume**, mirroring the order apply uses, and
-        // the volume write is then skipped unless it can be made without
-        // disturbing that mode. See [restoreVolume].
-        val ringerOutcome = audio.setRingerMode(snapshot.ringerMode)
-        val volumeOutcome = restoreVolume(
-            index = snapshot.ringVolume.current,
-            restoredMode = snapshot.ringerMode,
-        )
+        // The order depends on which mode is being restored, because on Android
+        // a ring-volume write is also a ringer-mode write (see [restoreVolume]):
+        //
+        // - back to NORMAL: set the mode, then write the level into it.
+        // - back to SILENT/VIBRATE: write the level *first*, while the phone is
+        //   still audible and the write is harmless, then silence it.
+        val (ringerOutcome, volumeOutcome) = if (snapshot.ringerMode == RingerMode.NORMAL) {
+            val ringer = audio.setRingerMode(snapshot.ringerMode)
+            ringer to restoreVolume(snapshot.ringVolume.current, snapshot.ringerMode)
+        } else {
+            val volume = restoreAudibleLevelBeforeSilencing(settings.get().lastAudibleRingIndex)
+            audio.setRingerMode(snapshot.ringerMode) to volume
+        }
         val dndOutcome = restoreDnd(snapshot.interruptionFilter, snapshot.zenRuleId)
 
         val failures = listOfNotNull(
@@ -179,15 +186,54 @@ class RestoreAudioAndDndUseCase @Inject constructor(
      * state the snapshot describes. Claiming a failure here would be the same
      * dishonesty in the other direction.
      *
-     * **Known residue, and it is not fixable from what we captured.** While the
-     * phone was silent, `getStreamVolume` reported 0, so 0 is all the snapshot
-     * holds — the user's own audible ring level was never visible to us. Apply
-     * did set an audible index on the way up, and the system remembers that as
-     * the last audible level. If the user later switches the ringer back to
-     * Normal by hand, they may find it louder than they left it. Recorded here
-     * rather than papered over; fixing it needs apply to capture the audible
-     * index before raising it.
+     * The level the user had *before* the call is a separate problem, because
+     * the snapshot cannot hold it: captured while the phone was silent, it says
+     * 0. That is handled by [restoreAudibleLevelBeforeSilencing], which runs
+     * while the phone is still audible — it has to, since once the phone is
+     * silent there is no way to write a level without unsilencing it.
      */
+    /**
+     * Put the user's own ring level back *before* silencing the phone again.
+     *
+     * The snapshot cannot help here. It was captured while the phone was
+     * already silent, so the level it holds is 0 — the platform's placeholder,
+     * not anything the user chose. What the user chose is the remembered
+     * observation from [RecordAudibleRingIndexUseCase].
+     *
+     * Writing it while the phone is still audible costs nothing: the mode is
+     * NORMAL, the index is above 0, so the write updates the level the system
+     * will return to and leaves the mode alone. The [audio.setRingerMode] call
+     * that follows then silences it. Doing it in the other order is impossible
+     * — once the phone is silent, any non-zero write would unsilence it.
+     *
+     * Declines to act unless the phone is audible right now. If a previous
+     * restore already silenced it, or the user did, a write here would take the
+     * phone *out* of silent — turning a cosmetic fix into the loud bedroom this
+     * whole subsystem exists to prevent.
+     */
+    private fun restoreAudibleLevelBeforeSilencing(rememberedIndex: Int?): Outcome<Unit> {
+        if (audio.isVolumeFixed()) return Outcome.ok()
+
+        if (rememberedIndex == null || rememberedIndex <= 0) {
+            // Never seen this phone audible. Saying nothing is right: the level
+            // is unknown, and a guess would be worse than leaving it.
+            Timber.i("No remembered audible ring level; leaving the level untouched")
+            return Outcome.ok()
+        }
+
+        val currentMode = audio.currentRingerMode()
+        if (currentMode != RingerMode.NORMAL) {
+            Timber.i(
+                "Not restoring the audible level: ringer is already %s, and any " +
+                    "non-zero write would take the phone out of silent",
+                currentMode,
+            )
+            return Outcome.ok()
+        }
+
+        return audio.setRingVolumeRaw(rememberedIndex).map { }
+    }
+
     private fun restoreVolume(index: Int, restoredMode: RingerMode): Outcome<Unit> {
         if (audio.isVolumeFixed()) {
             // We never changed it, so there is nothing to put back.
