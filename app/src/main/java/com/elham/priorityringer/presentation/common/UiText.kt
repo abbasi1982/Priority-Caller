@@ -134,6 +134,10 @@ val AuditEventType.labelRes: Int
         AuditEventType.FULL_SCREEN_ALERT_FALLBACK -> R.string.audit_type_full_screen_alert_fallback
         AuditEventType.PERMISSION_DENIED -> R.string.audit_type_permission_denied
         AuditEventType.STALE_RESTORE_RECOVERED -> R.string.audit_type_stale_restore_recovered
+        AuditEventType.ALARM_STREAM_ALERT_STARTED -> R.string.audit_type_alarm_alert_started
+        AuditEventType.ALARM_STREAM_ALERT_FAILED -> R.string.audit_type_alarm_alert_failed
+        AuditEventType.ALARM_STREAM_ALERT_LIKELY_INAUDIBLE ->
+            R.string.audit_type_alarm_alert_likely_inaudible
         AuditEventType.SIMULATION_RUN -> R.string.audit_type_simulation_run
         AuditEventType.CONTACT_ADDED -> R.string.audit_type_contact_added
         AuditEventType.CONTACT_REMOVED -> R.string.audit_type_contact_removed

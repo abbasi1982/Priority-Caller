@@ -15,6 +15,7 @@ import com.elham.priorityringer.domain.port.AlertPort
 import com.elham.priorityringer.domain.port.AudioPort
 import com.elham.priorityringer.domain.port.Clock
 import com.elham.priorityringer.domain.port.DndPort
+import com.elham.priorityringer.domain.port.RingtonePlayerPort
 import com.elham.priorityringer.domain.port.SchedulerPort
 import com.elham.priorityringer.domain.repository.AuditRepository
 import com.elham.priorityringer.domain.repository.EscalationRepository
@@ -35,15 +36,29 @@ data class ApplyResult(
     val ringer: Outcome<RingerMode>?,
     val volume: Outcome<VolumeSnapshot>?,
     val alert: Outcome<AlertPort.AlertMode>?,
+
+    /**
+     * The alarm-stream fallback. `null` means it was never needed: the phone
+     * was verified audible without it, which is the ordinary case.
+     */
+    val alarmAlert: Outcome<RingtonePlayerPort.AlertDelivery>? = null,
 ) {
-    /** True if *nothing* we attempted actually worked. */
+    /**
+     * True if *nothing* we attempted actually worked.
+     *
+     * The alarm-stream alert counts. It is the one attempt that can succeed
+     * when every mutation failed — that is the entire reason it exists — and
+     * telling the user "priority ringing had no effect" while their phone is
+     * audibly ringing would be the worst kind of wrong report.
+     */
     val allAttemptsFailed: Boolean
-        get() = listOfNotNull(dnd, ringer, volume).let { attempts ->
+        get() = listOfNotNull(dnd, ringer, volume, alarmAlert).let { attempts ->
             attempts.isNotEmpty() && attempts.none { it.isSuccess }
         }
 
     val failures: List<Outcome.Failure>
-        get() = listOfNotNull(dnd, ringer, volume, alert).mapNotNull { it.failureOrNull() }
+        get() = listOfNotNull(dnd, ringer, volume, alert, alarmAlert)
+            .mapNotNull { it.failureOrNull() }
 }
 
 /**
@@ -73,6 +88,7 @@ class ApplyPriorityRingUseCase @Inject constructor(
     private val audio: AudioPort,
     private val dnd: DndPort,
     private val alert: AlertPort,
+    private val ringtonePlayer: RingtonePlayerPort,
     private val scheduler: SchedulerPort,
     private val restoreRepository: RestoreRepository,
     private val escalationRepository: EscalationRepository,
@@ -132,6 +148,13 @@ class ApplyPriorityRingUseCase @Inject constructor(
         val targetPercent = if (escalation.escalate) 100 else settings.ringtoneVolumePercent
         val volumeOutcome = applyVolume(targetPercent, escalation.escalate)
 
+        // ---- 5b. Alarm-stream fallback, only if still inaudible ------------
+        val alarmAlertOutcome = if (stillInaudible(dndOutcome)) {
+            playAlarmStreamAlert(contact)
+        } else {
+            null
+        }
+
         // ---- 6. Full-screen alert, escalation only (FR5) -------------------
         val alertOutcome = if (escalation.escalate) showAlert(contact) else null
 
@@ -143,6 +166,7 @@ class ApplyPriorityRingUseCase @Inject constructor(
             ringer = ringerOutcome,
             volume = volumeOutcome,
             alert = alertOutcome,
+            alarmAlert = alarmAlertOutcome,
         ).also { result ->
             if (result.allAttemptsFailed) {
                 audit.log(
@@ -154,6 +178,113 @@ class ApplyPriorityRingUseCase @Inject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * Is the phone *still* not going to ring, after everything above?
+     *
+     * This is a **re-read**, not an inspection of the outcomes, and the
+     * distinction is the whole correctness of the feature. Neither outcome can
+     * answer the question on its own:
+     *
+     *  - [applyRingerMode] returns `null` when the phone was already NORMAL.
+     *    That is a success — nothing needed doing — but it is indistinguishable
+     *    from "not attempted" in the `Outcome`.
+     *  - A volume write can succeed at an index the user set to 0.
+     *
+     * Reading the device back is the only honest answer, and it is the same
+     * discipline every mutation in this app already follows (§ 6.2).
+     *
+     * DND is the exception: there is nothing to re-read that distinguishes
+     * "PRIORITY, with calls allowed by the bypass we just applied" from
+     * "PRIORITY, suppressing this call" — [InterruptionFilter.maySuppressCalls]
+     * is true for both, so using it here would fire the fallback on ordinary
+     * successful calls and ring the phone twice, a few hundred milliseconds out
+     * of phase. The port already made that judgement when it read the filter
+     * back, so the failure reason is what is trusted.
+     */
+    private fun stillInaudible(dndOutcome: Outcome<InterruptionFilter>?): Boolean {
+        val ringerSilent = audio.currentRingerMode() != RingerMode.NORMAL
+        val volumeZero = audio.currentRingVolume().current == 0
+        val dndBlocking = dndOutcome?.failureOrNull()?.reason in BLOCKING_DND_REASONS
+
+        if (ringerSilent || volumeZero || dndBlocking) {
+            Timber.i(
+                "Phone still inaudible after apply (silent=%b, volume0=%b, dnd=%b); " +
+                    "falling back to the alarm stream",
+                ringerSilent,
+                volumeZero,
+                dndBlocking,
+            )
+            return true
+        }
+        return false
+    }
+
+    /**
+     * The fallback: play the user's ringtone on the alarm stream.
+     *
+     * The audibility prediction is logged **before** the attempt, so a phone in
+     * Total Silence produces an audit entry explaining why it stayed quiet
+     * rather than an entry claiming an alert that nobody heard.
+     */
+    private suspend fun playAlarmStreamAlert(
+        contact: PriorityContact,
+    ): Outcome<RingtonePlayerPort.AlertDelivery> {
+        val audibility = ringtonePlayer.alarmAudibility()
+
+        when (audibility) {
+            RingtonePlayerPort.AlarmAudibility.MUTED_BY_DND -> audit.log(
+                type = AuditEventType.ALARM_STREAM_ALERT_LIKELY_INAUDIBLE,
+                message = "Do Not Disturb on this phone is set to silence alarms " +
+                    "too, so the backup alert probably cannot be heard. " +
+                    "Allowing alarms in Do Not Disturb would let it through.",
+                relatedContactId = contact.id,
+                recoverable = true,
+            )
+
+            RingtonePlayerPort.AlarmAudibility.VOLUME_ZERO -> audit.log(
+                type = AuditEventType.ALARM_STREAM_ALERT_LIKELY_INAUDIBLE,
+                message = "The alarm volume on this phone is zero, so the backup " +
+                    "alert probably cannot be heard. Raising the alarm volume " +
+                    "would let it through.",
+                relatedContactId = contact.id,
+                recoverable = true,
+            )
+
+            RingtonePlayerPort.AlarmAudibility.AUDIBLE,
+            RingtonePlayerPort.AlarmAudibility.UNKNOWN,
+            -> Unit
+        }
+
+        // Attempted regardless of the prediction. The prediction reads settings;
+        // it does not decide the outcome, and declining to try on the strength
+        // of it would turn a guess into a silence.
+        val outcome = ringtonePlayer.startAlarmStreamAlert()
+
+        when (outcome) {
+            is Outcome.Success -> audit.log(
+                type = AuditEventType.ALARM_STREAM_ALERT_STARTED,
+                message = "The ringer could not be made audible, so your ringtone " +
+                    "is playing as an alarm instead" +
+                    if (outcome.value == RingtonePlayerPort.AlertDelivery.IN_PROCESS) {
+                        " (it may stop early if the system closes the app)."
+                    } else {
+                        "."
+                    },
+                relatedContactId = contact.id,
+            )
+
+            is Outcome.Failure -> audit.log(
+                type = AuditEventType.ALARM_STREAM_ALERT_FAILED,
+                message = "The backup alarm alert could not be started: " +
+                    outcome.reason.name + (outcome.detail?.let { " ($it)" } ?: ""),
+                relatedContactId = contact.id,
+                recoverable = true,
+            )
+        }
+
+        return outcome
     }
 
     private suspend fun evaluateEscalation(
@@ -335,5 +466,20 @@ class ApplyPriorityRingUseCase @Inject constructor(
             )
         }
         return outcome
+    }
+
+    private companion object {
+        /**
+         * DND failures that mean the call will not be heard.
+         *
+         * `DND_BYPASS_INEFFECTIVE` is the Android 15 most-restrictive-wins case
+         * (§ A.1); without notification-policy access the app cannot relax DND
+         * at all. Every other failure reason leaves the filter untouched, which
+         * may still be perfectly audible.
+         */
+        val BLOCKING_DND_REASONS = setOf(
+            FailureReason.DND_BYPASS_INEFFECTIVE,
+            FailureReason.NOTIFICATION_POLICY_ACCESS_DENIED,
+        )
     }
 }

@@ -23,6 +23,7 @@ app cannot drift apart.
 | `USE_FULL_SCREEN_INTENT` | yes | no | Install-time, **plus** a user allowance on API 34+ | Alert degrades to a heads-up notification |
 | `VIBRATE` | yes | no | Install-time, automatic | Alert channel cannot vibrate |
 | Volume adjustable | n/a — device capability | n/a | Not grantable | Volume cannot be raised on this device |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | yes | no | Settings (battery exemption) | Watchdog that restores ringer/DND after a call can be deferred by Doze; **not** required for call detection or for the alarm-stream fallback |
 | `INTERNET` | **deliberately absent** | — | — | — |
 
 "Required" here means `Capability.isRequired` in the code, which is what drives
@@ -353,6 +354,36 @@ detection-timing section of `DeviceCompatibility.md`.
 
 ---
 
+## `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
+
+**What it is.** A special-access request (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`)
+plus a list fallback. Declaring the permission does not exempt the app; the user
+must confirm.
+
+**Why this app asks.** Only for the **restore watchdog**. That job is WorkManager
+work. Doze and restricted standby buckets delay exactly that class of work. A
+late watchdog is a phone that stays loud past the timeout Settings promises.
+
+**What it is not.** It is **not** what makes incoming-call detection work —
+`PHONE_STATE` is delivered either way. It is **not** what keeps the alarm-stream
+`MediaPlayer` alive. Playback is `IN_PROCESS` inside the same `goAsync()`
+window as apply; no foreground service was added (Architecture.md § A.2, P2
+unanswered). Exempting the app does not turn `IN_PROCESS` into a guaranteed
+ring for the full call.
+
+If a later change started a foreground service from `PHONE_STATE`, Android would
+typically require this exemption to start the service from that broadcast. That
+is not the current design, so the Permissions screen wording stays about the
+watchdog (`capability_battery_optimisation_purpose`).
+
+**Required?** No (`Capability.BATTERY_OPTIMISATION_EXEMPT.isRequired == false`).
+
+**Deep link.** `SettingsLinks.settingsIntent(…, BATTERY_OPTIMISATION_EXEMPT)` →
+`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`; fallback
+`batteryOptimisationFallback()`.
+
+---
+
 ## How the app takes you to each screen
 
 All of the above is wired in `presentation/common/SettingsLinks.kt`.
@@ -366,6 +397,7 @@ All of the above is wired in `presentation/common/SettingsLinks.kt`.
 | `POST_NOTIFICATIONS` | `Manifest.permission.POST_NOTIFICATIONS` (API 33+, else none) | `Settings.ACTION_APP_NOTIFICATION_SETTINGS` + `EXTRA_APP_PACKAGE` |
 | `FULL_SCREEN_INTENT` | — | `Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` + `package:` Uri (API 34+ only; `null` below) |
 | `VOLUME_ADJUSTABLE` | — | — (not grantable) |
+| `BATTERY_OPTIMISATION_EXEMPT` | — | `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (`package:` Uri); fallback battery-optimisation list |
 | *fallback for any of the above* | — | `Settings.ACTION_APPLICATION_DETAILS_SETTINGS` + `package:` Uri |
 
 Runtime permissions go through a permission-request launcher first; the app

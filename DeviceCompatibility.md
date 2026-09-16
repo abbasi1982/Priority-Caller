@@ -14,14 +14,14 @@ authoritative answer.
 
 ## Android version matrix
 
-| API | Android | Detection | DND handling | Ringer / volume | Escalation alert |
-|---|---|---|---|---|---|
-| 30 | 11 (min) | `PHONE_STATE` broadcast; deprecated `PhoneStateListener` for call state | Legacy global `setInterruptionFilter` | `setRingerMode` + `setStreamVolume` | Full-screen intent granted at install; no `POST_NOTIFICATIONS` needed |
-| 31–32 | 12 / 12L | `PHONE_STATE`; `TelephonyCallback.CallStateListener` (no number, by design) | Legacy global filter | unchanged | unchanged |
-| 33 | 13 | unchanged | Legacy global filter | unchanged | **`POST_NOTIFICATIONS` runtime permission now required** |
-| 34 | 14 | unchanged | Legacy global filter | unchanged | **Full-screen intent gated behind `canUseFullScreenIntent()`**; falls back to heads-up |
-| 35 | 15 | unchanged | **As shipped (`targetSdk 35`): explicit `AutomaticZenRule`, combined most-restrictive-wins.** A stricter user-set DND wins and cannot be overridden | unchanged | unchanged |
-| 36 | 16 | **Never compiled against or tested.** `compileSdk` is 35. Code falls into the `>= 35` branches. Nothing is version-specific to 36, and no claim is made about it. | as 35 | as 35 | as 35 |
+| API | Android | Detection | DND handling | Ringer / volume | Alarm-stream fallback | Escalation alert |
+|---|---|---|---|---|---|---|
+| 30 | 11 (min) | `PHONE_STATE` broadcast; deprecated `PhoneStateListener` for call state | Legacy global `setInterruptionFilter` | `setRingerMode` + `setStreamVolume` | `USAGE_ALARM` `MediaPlayer` if ringer path is verified inaudible; not a FGS | Full-screen intent granted at install; no `POST_NOTIFICATIONS` needed |
+| 31–32 | 12 / 12L | `PHONE_STATE`; `TelephonyCallback.CallStateListener` (no number, by design) | Legacy global filter | unchanged | unchanged | unchanged |
+| 33 | 13 | unchanged | Legacy global filter | unchanged | unchanged | **`POST_NOTIFICATIONS` runtime permission now required** |
+| 34 | 14 | unchanged | Legacy global filter | unchanged | unchanged | **Full-screen intent gated behind `canUseFullScreenIntent()`**; falls back to heads-up |
+| 35 | 15 | unchanged | **As shipped (`targetSdk 35`): explicit `AutomaticZenRule`, combined most-restrictive-wins.** A stricter user-set DND wins and cannot be overridden | unchanged | Same last-resort path. Total Silence / alarm-disallowed policy still mute `STREAM_ALARM` | unchanged |
+| 36 | 16 | **Never compiled against or tested.** `compileSdk` is 35. Code falls into the `>= 35` branches. Nothing is version-specific to 36, and no claim is made about it. | as 35 | as 35 | as 35 | as 35 |
 
 `AndroidTelephonyPort` branches at API 31: `registerTelephonyCallback` on 31+,
 the deprecated `PhoneStateListener.listen` on API 30 only. Either way the
@@ -189,7 +189,7 @@ Readiness is computed in `CapabilityReport.readiness`.
 | denied | any | any | `INERT` | The app is never told a call arrived. Nothing happens. |
 | granted | denied | any | `INERT` | The broadcast arrives with no number. Every call produces `NUMBER_UNAVAILABLE`. Nothing else ever happens. |
 | granted | granted | denied | `DEGRADED` | Calls are detected and matched. DND is never touched (`PERMISSION_DENIED` logged). Vibrate → normal and volume changes are attempted, and will fail with `SecurityException` → `NOTIFICATION_POLICY_ACCESS_DENIED` if DND is active. |
-| granted | granted | granted | `ARMED` | The full apply path runs: DND relax, ringer mode, volume, and on a repeat call the alert. Each step is independently failable and independently reported. |
+| granted | granted | granted | `ARMED` | The full apply path runs: DND relax, ringer mode, volume, alarm-stream fallback if still inaudible, and on a repeat call the alert. Each step is independently failable and independently reported. |
 
 `ARMED` deliberately does **not** require `POST_NOTIFICATIONS` or the
 full-screen-intent allowance. A device can be `ARMED` — ringing will be attempted
@@ -227,22 +227,62 @@ Two implementation details worth knowing:
 
 These are genuinely different device states and the app treats them differently.
 
-| Starting ringer mode | What the app does | Realistic outcome |
+| Starting ringer mode | Ringer / `STREAM_RING` path | Alarm-stream fallback (only if still inaudible) |
 |---|---|---|
-| `NORMAL` | No ringer change attempted at all; volume is still raised | Works |
-| `VIBRATE` | `setRingerMode(NORMAL)`, then read back | The realistic supported path. Usually works when DND is not active; needs notification-policy access when it is. |
-| `SILENT` | `setRingerMode(NORMAL)` is still attempted, then read back | **Not guaranteed.** If the device is still silent afterwards, the failure is `SILENT_NOT_OVERRIDDEN` |
-| `UNKNOWN` | No change attempted | — |
+| `NORMAL` | No ringer change; volume is still raised | Not used |
+| `VIBRATE` | `setRingerMode(NORMAL)`, then read back. The realistic supported path when DND is not blocking | Used only if the phone is still inaudible after verify |
+| `SILENT` | `setRingerMode(NORMAL)` is still attempted, then read back. **Not guaranteed.** Failure is `SILENT_NOT_OVERRIDDEN` | **May be heard.** Silent does not mute `STREAM_ALARM` on AOSP. Not a claim that every OEM agrees — see P1 |
+| `UNKNOWN` | No ringer change | Same last-resort rule as any other inaudible state |
 
-When the read-back shows the device is still silent, the audit log says:
+When the ringer read-back shows the device is still silent, the audit log says:
 
 > Phone is in Silent mode and stayed silent. Silent is controlled by you and the
 > device manufacturer; an app cannot reliably override it.
 
-The app never claims silent mode can always be overridden. It attempts the
-transition, verifies by reading the value back, and reports what actually
-happened. On some devices and some Android builds that attempt succeeds; on
-others it does not, and there is no supported way to change that.
+That is still true of the **ringer**. The alarm-stream fallback is a second
+attempt on a different stream, not a rewriting of that sentence. The app never
+claims Silent can always be overridden by `setRingerMode`.
+
+---
+
+## Alarm-stream fallback vs Do Not Disturb
+
+The fallback is **not** a universal bypass. Platform docs: when a zen policy
+disallows alarms, the alarm stream is muted while DND is active.
+
+| Interruption filter / policy | Expected alarm-stream result | Audit |
+|---|---|---|
+| Filter `ALL` (DND off) | Audible if alarm volume > 0 | Fallback usually not started (ringer path already audible) |
+| Filter `ALARMS` | Alarms allowed; stream should play | `ALARM_STREAM_ALERT_STARTED` if the ringer path failed |
+| Filter `PRIORITY` **with** `PRIORITY_CATEGORY_ALARMS` | Ordinary DND that still allows alarms; stream should play | same |
+| Filter `PRIORITY` **without** alarms | Stream muted | `ALARM_STREAM_ALERT_LIKELY_INAUDIBLE` then still attempted |
+| Filter `NONE` (Total Silence) | Stream muted | same |
+| Alarm volume 0 / stream muted | Inaudible. This app does **not** raise alarm volume | `ALARM_STREAM_ALERT_LIKELY_INAUDIBLE` (`VOLUME_ZERO`) |
+
+Playback delivery on every API this app supports is `IN_PROCESS` (no foreground
+service). The sound may stop early if the process is reclaimed.
+
+---
+
+## P1 / P2 on the target phone
+
+These are hardware measurements, not JVM tests. The intended family phone has
+**not** had results written into this table yet. Fill the Outcome column from
+that device; do not copy emulator behaviour.
+
+| ID | What it asks | How | Outcome on the target phone |
+|---|---|---|---|
+| **P1** | Is `STREAM_ALARM` independent of ringer mode? Writing alarm index 0 must not move the ringer (the ring stream *does* couple index 0 to Vibrate). | `AlarmStreamIndependenceTest` (`adb shell cmd notification allow_dnd com.elham.priorityringer` first), plus a real Silent / Vibrate listen | **Not recorded.** Test exists; run it on the family phone before treating P1 as closed |
+| **P2** | Does `MediaPlayer` keep playing after `PHONE_STATE` / `goAsync()` returns, without a foreground service? | Real incoming call (or Test Mode) in Silent, listen for the full ring, then answer/decline and confirm it stops | **Not recorded.** No service was added. Until this is measured, delivery stays `IN_PROCESS` and Architecture.md § A.2 stays no-FGS |
+
+A Pixel 6 AVD (API 35) was used for earlier instrumented work; that is **not**
+the family phone and is not a substitute for P1/P2.
+
+When P1 fails on a given OEM, the fallback is void there — report it; do not
+reach for a hidden API. When P2 fails (sound cuts as soon as the broadcast
+ends), the honest product statement is already in the `IN_PROCESS` audit line.
+Adding a FGS would be a later, Play-declaration-bearing change; it is out of
+scope here.
 
 ---
 
@@ -398,11 +438,14 @@ Run it in each state you actually care about:
 
 1. **On vibrate.** Expect `RINGER_MODE_CHANGED` and `VOLUME_CHANGED`. Confirm the
    phone is audible.
-2. **On silent.** If you see `SILENT_NOT_OVERRIDDEN`, this device will not be
-   rescued from silent mode by this app, and no setting will change that. Plan
-   around it.
+2. **On silent.** If you see `SILENT_NOT_OVERRIDDEN`, the **ringer** stayed
+   silent. Look next for `ALARM_STREAM_ALERT_STARTED` (or
+   `ALARM_STREAM_ALERT_LIKELY_INAUDIBLE`). The backup can still be heard in
+   Silent; it is not guaranteed, and Total Silence will still mute it.
 3. **With Do Not Disturb on.** Look for `DND_BYPASS_ATTEMPTED`, then check
-   whether `DND_BYPASS_INEFFECTIVE` follows it.
+   whether `DND_BYPASS_INEFFECTIVE` follows it. If the ringer path failed, the
+   same alarm-stream events as Silent apply — unless this DND mode is Total
+   Silence or disallows alarms.
 4. **With any vendor focus/bedtime mode on**, if the phone has one. This is the
    case the app has the least visibility into, so it is the one most worth
    checking by hand.

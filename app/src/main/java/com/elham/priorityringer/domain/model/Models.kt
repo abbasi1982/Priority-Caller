@@ -154,6 +154,18 @@ enum class AuditEventType {
     FULL_SCREEN_ALERT_FALLBACK,
     PERMISSION_DENIED,
     STALE_RESTORE_RECOVERED,
+
+    // The alarm-stream fallback, used only when the ringer approach is verified
+    // to have left the phone inaudible.
+    ALARM_STREAM_ALERT_STARTED,
+    ALARM_STREAM_ALERT_FAILED,
+
+    /**
+     * Recorded *before* the attempt, when the DND policy says alarms are muted.
+     * The alert is still tried — the prediction is a read of settings, not a
+     * guarantee — but the user gets the reason rather than silence.
+     */
+    ALARM_STREAM_ALERT_LIKELY_INAUDIBLE,
     SIMULATION_RUN,
     CONTACT_ADDED,
     CONTACT_REMOVED,
@@ -161,12 +173,13 @@ enum class AuditEventType {
 
     val severity: AuditSeverity
         get() = when (this) {
-            ERROR, RESTORATION_FAILED, RINGER_CHANGE_FAILED, VOLUME_CHANGE_FAILED ->
-                AuditSeverity.ERROR
+            ERROR, RESTORATION_FAILED, RINGER_CHANGE_FAILED, VOLUME_CHANGE_FAILED,
+            ALARM_STREAM_ALERT_FAILED,
+            -> AuditSeverity.ERROR
 
             DND_BYPASS_INEFFECTIVE, SILENT_NOT_OVERRIDDEN, VOLUME_FIXED,
             NUMBER_UNAVAILABLE, PERMISSION_DENIED, FULL_SCREEN_ALERT_FALLBACK,
-            STALE_RESTORE_RECOVERED,
+            STALE_RESTORE_RECOVERED, ALARM_STREAM_ALERT_LIKELY_INAUDIBLE,
             -> AuditSeverity.WARNING
 
             else -> AuditSeverity.INFO
@@ -186,7 +199,25 @@ enum class AuditEventType {
         get() = severity == AuditSeverity.ERROR ||
             this == DND_BYPASS_INEFFECTIVE ||
             this == SILENT_NOT_OVERRIDDEN ||
-            this == STALE_RESTORE_RECOVERED
+            this == STALE_RESTORE_RECOVERED ||
+            this == ALARM_STREAM_ALERT_LIKELY_INAUDIBLE
+
+    /**
+     * Does this event *answer* a banner already raised for the same call?
+     *
+     * `SILENT_NOT_OVERRIDDEN` and `DND_BYPASS_INEFFECTIVE` are logged during
+     * the apply sequence, before the alarm-stream fallback is even attempted.
+     * If the fallback then works, the phone rang — and leaving a persistent
+     * banner up saying it did not would send the user to fix settings that are
+     * doing their job. The banner is resolved by the later event rather than
+     * suppressed at the earlier one, because at the time those entries are
+     * written the outcome genuinely is not known yet, and the log must record
+     * what was true when it happened.
+     *
+     * The entries themselves stay in the log. Only the banner clears.
+     */
+    val resolvesPersistentBanner: Boolean
+        get() = this == ALARM_STREAM_ALERT_STARTED
 }
 
 enum class AuditSeverity { INFO, WARNING, ERROR }

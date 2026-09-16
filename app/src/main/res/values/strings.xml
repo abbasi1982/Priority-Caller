@@ -129,6 +129,14 @@
     <string name="audit_type_full_screen_alert_fallback">Alert shown as a banner</string>
     <string name="audit_type_permission_denied">Permission denied</string>
     <string name="audit_type_stale_restore_recovered">Left-over settings recovered</string>
+
+    <!--
+      The alarm-stream fallback. "Backup alert" rather than "alarm", so nobody
+      reads the log and thinks an alarm they set went off.
+    -->
+    <string name="audit_type_alarm_alert_started">Backup alert played</string>
+    <string name="audit_type_alarm_alert_failed">Backup alert failed</string>
+    <string name="audit_type_alarm_alert_likely_inaudible">Backup alert may not be heard</string>
     <string name="audit_type_simulation_run">Simulation run</string>
     <string name="audit_type_contact_added">Contact added</string>
     <string name="audit_type_contact_removed">Contact removed</string>
@@ -285,6 +293,15 @@
     <string name="test_simulate_title">Simulate a priority call</string>
     <string name="test_select_contact">Which contact should the simulated call come from?</string>
     <string name="test_contact_row">%1$s (%2$s)</string>
+    <!--
+      Only shown when the phone is not already audible. Says "may" because it
+      genuinely may not: the backup alert is silenced by Total Silence and by a
+      Do Not Disturb policy that disallows alarms (§ 17.3 forbids "always").
+    -->
+    <string name="test_simulate_may_sound">This phone is not on Normal, so the simulation may
+        play the backup alert out loud. There is no real call to end it — use Restore now, or wait
+        for the auto-restore timer.</string>
+
     <string name="test_simulate_call">Simulate priority call</string>
     <string name="test_simulate_escalation">Simulate a repeat caller</string>
     <string name="test_escalation_explainer">Simulating a repeat caller records the earlier calls it would take to reach your threshold (%1$d calls in %2$d minutes) and then places one more.</string>

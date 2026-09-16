@@ -39,8 +39,22 @@ class AuditRepositoryImpl @Inject constructor(
     override fun observeRecent(limit: Int): Flow<List<AuditLogEntry>> =
         dao.observeRecent(limit).map { it.toAuditDomain() }.flowOn(io)
 
+    /**
+     * Most recent wins.
+     *
+     * The query asks for the latest entry that either raises the banner or
+     * resolves one, and a resolving entry yields `null` — no banner. Doing it
+     * in one ordered query rather than two comparisons is what makes it
+     * correct across calls: a `SILENT_NOT_OVERRIDDEN` from *this* call
+     * legitimately raises the banner again even though the previous call ended
+     * in a successful fallback.
+     */
     override fun observeLatestFailure(): Flow<AuditLogEntry?> =
-        dao.observeLatestOfTypes(ERROR_TYPE_NAMES).map { it?.toDomain() }.flowOn(io)
+        dao.observeLatestOfTypes(BANNER_TYPE_NAMES)
+            .map { entry ->
+                entry?.toDomain()?.takeIf { it.type.raisesPersistentBanner }
+            }
+            .flowOn(io)
 
     /**
      * Architecture.md § 3 and § 13.
@@ -104,9 +118,14 @@ class AuditRepositoryImpl @Inject constructor(
          * `SILENT_NOT_OVERRIDDEN` too — only WARNING severity, since they are
          * expected platform limits rather than malfunctions, but still the
          * outcomes the user most needs to see.
+         *
+         * Resolving types are in the list too, so that the newest of the two
+         * kinds is what the query returns. Leaving them out would make the
+         * banner permanent: the raising entry would stay the latest match
+         * forever, no matter what happened afterwards.
          */
-        val ERROR_TYPE_NAMES: List<String> = AuditEventType.entries
-            .filter { it.raisesPersistentBanner }
+        val BANNER_TYPE_NAMES: List<String> = AuditEventType.entries
+            .filter { it.raisesPersistentBanner || it.resolvesPersistentBanner }
             .map { it.name }
     }
 }

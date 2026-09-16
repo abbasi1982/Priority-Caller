@@ -15,7 +15,7 @@
 | FR1 Priority contacts | ContactsContract, Room | **Implement as specified.** |
 | FR2 Incoming detection + number | `TelephonyManager.ACTION_PHONE_STATE_CHANGED` + `READ_PHONE_STATE` + `READ_CALL_LOG`; `TelephonyCallback.CallStateListener` for state **without** number (API 31+) | **Implement with dual path.** Do **not** rely on `TelephonyCallback` for the number. |
 | FR3 DND bypass | `ACCESS_NOTIFICATION_POLICY`, `NotificationManager.isNotificationPolicyAccessGranted()`, `setInterruptionFilter` / `setNotificationPolicy` / `AutomaticZenRule` | **Partial.** User grant required. On **apps targeting API 35+**, `setInterruptionFilter` / `setNotificationPolicy` no longer change **global** DND; they toggle an **implicit AutomaticZenRule**. Combined policy is **most-restrictive-wins**. User DND / other apps can still block ringing. |
-| FR4 Vibrate → audible + volume | `AudioManager.getRingerMode` / `setRingerMode`, `STREAM_RING` volume, `isVolumeFixed()` | **Partial.** Vibrate → Normal is the realistic supported path **when not in DND silent**. Transitions that **toggle DND** need notification-policy access (N+). Fixed-volume devices: **no volume change**. Silent (`RINGER_MODE_SILENT`) is **not** the same as Vibrate and **must not** be advertised as always overridable. |
+| FR4 Vibrate → audible + volume | `AudioManager.getRingerMode` / `setRingerMode`, `STREAM_RING` volume, `isVolumeFixed()`. Last-resort: `MediaPlayer` on `USAGE_ALARM` / `STREAM_ALARM` | **Partial.** Vibrate → Normal is the realistic supported path **when not in DND silent**. Transitions that **toggle DND** need notification-policy access (N+). Fixed-volume devices: **no volume change**. Silent (`RINGER_MODE_SILENT`) is **not** the same as Vibrate and **must not** be advertised as always overridable. When that path is verified inaudible, the alarm-stream fallback may still be heard — **except** under Total Silence or a DND policy that disallows alarms. It is **not** a universal bypass. |
 | FR5 Repeat-call escalation | App-owned timestamps + max `STREAM_RING` + full-screen `Activity` via high-priority notification `fullScreenIntent` | **Implement with caveats.** Full-screen intent is a **system privilege** (`USE_FULL_SCREEN_INTENT`); Android 14+ may require the user to allow full-screen notifications. It does **not** replace the system InCallUI. |
 | FR6 Test mode | App-internal simulation | **Implement.** Simulation must **not** fake OS permissions. |
 | FR7 Audit log | Room, cap 500 | **Implement.** |
@@ -265,6 +265,27 @@ Sequence after snapshot:
 
 OEM layers (Samsung, Xiaomi, etc.) may ignore third-party ringer changes; treat as **detected failure**, not a cue to use undocumented APIs.
 
+### 7.1 Alarm-stream fallback (last resort, not a replacement)
+
+The ringer / `STREAM_RING` path above remains the primary treatment. It is **not** replaced.
+
+If, after DND + ringer + volume have been attempted and verified, the phone is still inaudible (`SILENT_NOT_OVERRIDDEN`, ringer still not `NORMAL`, ring index 0, or `DND_BYPASS_INEFFECTIVE` / other blocking DND failure), `ApplyPriorityRingUseCase` starts `RingtonePlayerPort.startAlarmStreamAlert()`.
+
+**What it is.** `AndroidRingtonePlayerPort` plays the user’s default ringtone (else the default alarm sound) on a looping `MediaPlayer` with `AudioAttributes.USAGE_ALARM`. That routes to `STREAM_ALARM`, which is a different stream from the ringer. Official platform behaviour: ringer mode Silent / Vibrate does not mute the alarm stream; ordinary DND that still allows alarms does not mute it either.
+
+**What it is not.** It does **not** always ring.
+
+- `INTERRUPTION_FILTER_NONE` (Total Silence) mutes alarms.
+- `INTERRUPTION_FILTER_PRIORITY` mutes the alarm stream when the policy does not include `PRIORITY_CATEGORY_ALARMS`.
+- Alarm volume 0 / `isStreamMute(STREAM_ALARM)` is inaudible.
+- The app **does not** raise or restore alarm volume (out of scope). It **does not** request audio focus (deliberate; side-effect undoing is where restore bugs have lived).
+
+`alarmAudibility()` is logged **before** play (`ALARM_STREAM_ALERT_LIKELY_INAUDIBLE` when muted-by-DND or volume-zero). The attempt still runs: a prediction is not a substitute for trying. Success is `ALARM_STREAM_ALERT_STARTED`; start failure is `ALARM_STREAM_ALERT_FAILED`.
+
+**Process lifetime.** Delivery is `AlertDelivery.IN_PROCESS`. No foreground service was added (see § A.2). Playback can be cut short if the system reclaims the process after the `goAsync()` window. A 60s `Handler` guard stops a stuck player if OFFHOOK/IDLE never arrives. `PhoneStateReceiver` calls `stopAlarmStreamAlert()` on those states.
+
+**Honest product language.** The alarm stream can defeat Silent and ordinary DND. Total Silence, or a DND policy that disallows alarms, silences it. Never “always”.
+
 ---
 
 ## 8. Escalation (FR5)
@@ -506,6 +527,15 @@ plus a WorkManager one-shot for the restore timeout only.**
 is already alive, for state-driven restore. It is never relied on to keep the
 process alive.
 
+**Alarm-stream playback uses the same choice.** P2 asked whether a foreground
+service is required to keep `MediaPlayer` alive after the broadcast returns.
+No service was added: starting one from `PHONE_STATE` without a battery-
+optimisation exemption is restricted, and the measurement on the target phone
+has not been answered with a service. `startAlarmStreamAlert()` therefore
+returns `IN_PROCESS`. The audit text for that delivery says the sound may stop
+early if the system closes the app. § A.2 is unchanged: still no
+`foregroundServiceType`, still no Play special-use declaration.
+
 ## A.3 Stricter than contract: restore is write-ahead, not in-memory
 
 §3 specifies `CallSnapshot` as "in-memory, not Room", and §4 adds a coordinator
@@ -620,6 +650,7 @@ this adds durable backing, it does not replace the type.
 | `DndPort` | interruption filter, policy access, apply/restore (A.1 branches) |
 | `TelephonyPort` | call state registration, network/SIM ISO for normalization |
 | `AlertPort` | full-screen intent + heads-up fallback |
+| `RingtonePlayerPort` | last-resort `USAGE_ALARM` playback; `alarmAudibility()` prediction; never throws |
 | `SchedulerPort` | watchdog enqueue/cancel |
 | `Clock` | injectable time source for escalation windows and tests |
 

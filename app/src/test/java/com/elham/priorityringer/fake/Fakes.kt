@@ -19,6 +19,7 @@ import com.elham.priorityringer.domain.port.AudioPort
 import com.elham.priorityringer.domain.port.CapabilityPort
 import com.elham.priorityringer.domain.port.Clock
 import com.elham.priorityringer.domain.port.DndPort
+import com.elham.priorityringer.domain.port.RingtonePlayerPort
 import com.elham.priorityringer.domain.port.SchedulerPort
 import com.elham.priorityringer.domain.port.TelephonyPort
 import com.elham.priorityringer.domain.repository.AuditRepository
@@ -106,6 +107,21 @@ class CallRecorder {
         const val RESTORE_DND = "mutate:dnd.restore"
         const val SHOW_ALERT = "mutate:alert.showPriorityAlert"
         const val DISMISS_ALERT = "mutate:alert.dismissAlert"
+        /**
+         * The alarm-stream alert gets its own prefix, deliberately.
+         *
+         * [MUTATE] means "a setting belonging to the user was changed", and
+         * that is what the restore tests assert the absence of. Playing and
+         * stopping a sound this app started changes none of the user's
+         * settings and leaves nothing to put back — a stop with nothing
+         * playing is a no-op. Filing it under `mutate:` would make
+         * "nothing on the device was touched" fail for an action that touched
+         * nothing.
+         */
+        const val SOUND = "sound:"
+
+        const val START_ALARM_ALERT = "sound:ringtonePlayer.startAlarmStreamAlert"
+        const val STOP_ALARM_ALERT = "sound:ringtonePlayer.stopAlarmStreamAlert"
 
         const val SCHEDULE_WATCHDOG = "schedule:scheduler.scheduleRestoreWatchdog"
         const val CANCEL_WATCHDOG = "schedule:scheduler.cancelRestoreWatchdog"
@@ -191,6 +207,10 @@ class FakeAudioPort(private val recorder: CallRecorder = CallRecorder()) : Audio
         volumePercentRequests += percent
         setRingVolumePercentResult?.let { return it }
         currentVolumeIndex = (percent * maxVolumeIndex) / 100
+        // Same coupling as the raw path. Both end in setStreamVolume on the
+        // real device, so a fake that coupled only one of them would be
+        // modelling the API surface rather than the platform.
+        applyRingerModeCoupling(currentVolumeIndex)
         return Outcome.Success(currentRingVolume())
     }
 
@@ -285,6 +305,47 @@ class FakeAlertPort(private val recorder: CallRecorder = CallRecorder()) : Alert
     override fun dismissAlert() {
         recorder.record(CallRecorder.DISMISS_ALERT)
         dismissCount++
+    }
+}
+
+/**
+ * The alarm-stream fallback (FR4 fallback).
+ *
+ * [startCount] and [stopCount] rather than a single boolean: the tests that
+ * matter are about *how often* and *in what order*, not merely whether. An
+ * alert started twice for one call is two ringtones on top of each other, and
+ * an alert never stopped is a phone that will not go quiet.
+ */
+class FakeRingtonePlayerPort(
+    private val recorder: CallRecorder = CallRecorder(),
+) : RingtonePlayerPort {
+
+    var audibility: RingtonePlayerPort.AlarmAudibility =
+        RingtonePlayerPort.AlarmAudibility.AUDIBLE
+
+    var startResult: Outcome<RingtonePlayerPort.AlertDelivery> =
+        Outcome.Success(RingtonePlayerPort.AlertDelivery.IN_PROCESS)
+
+    var startCount: Int = 0
+    var stopCount: Int = 0
+
+    /** True while an alert would be sounding, so a test can assert silence. */
+    var playing: Boolean = false
+        private set
+
+    override fun alarmAudibility(): RingtonePlayerPort.AlarmAudibility = audibility
+
+    override fun startAlarmStreamAlert(): Outcome<RingtonePlayerPort.AlertDelivery> {
+        recorder.record(CallRecorder.START_ALARM_ALERT)
+        startCount++
+        if (startResult.isSuccess) playing = true
+        return startResult
+    }
+
+    override fun stopAlarmStreamAlert() {
+        recorder.record(CallRecorder.STOP_ALARM_ALERT)
+        stopCount++
+        playing = false
     }
 }
 
@@ -454,9 +515,18 @@ class FakeAuditRepository : AuditRepository {
      * `SILENT_NOT_OVERRIDDEN` are only WARNING, yet they must raise the
      * Dashboard banner. A fake filtering on severity would pass tests that the
      * real repository fails.
+     *
+     * It also mirrors the resolve rule: the newest entry of *either* kind
+     * decides, so a successful alarm-stream fallback clears the banner a
+     * failed ringer change raised moments earlier. A fake that only looked for
+     * raising entries would leave the banner up and never notice.
      */
     override fun observeLatestFailure(): Flow<AuditLogEntry?> =
-        state.map { list -> list.lastOrNull { it.type.raisesPersistentBanner } }
+        state.map { list ->
+            list.lastOrNull {
+                it.type.raisesPersistentBanner || it.type.resolvesPersistentBanner
+            }?.takeIf { it.type.raisesPersistentBanner }
+        }
 
     override suspend fun log(
         type: AuditEventType,

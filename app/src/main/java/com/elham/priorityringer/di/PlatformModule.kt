@@ -8,6 +8,7 @@ import androidx.core.content.getSystemService
 import com.elham.priorityringer.data.platform.SystemClock
 import com.elham.priorityringer.data.platform.alert.AndroidAlertPort
 import com.elham.priorityringer.data.platform.audio.AndroidAudioPort
+import com.elham.priorityringer.data.platform.audio.AndroidRingtonePlayerPort
 import com.elham.priorityringer.data.platform.capability.AndroidCapabilityPort
 import com.elham.priorityringer.data.platform.dnd.AndroidDndPort
 import com.elham.priorityringer.data.platform.scheduler.WorkManagerSchedulerPort
@@ -19,6 +20,7 @@ import com.elham.priorityringer.domain.port.AudioPort
 import com.elham.priorityringer.domain.port.CapabilityPort
 import com.elham.priorityringer.domain.port.Clock
 import com.elham.priorityringer.domain.port.DndPort
+import com.elham.priorityringer.domain.port.RingtonePlayerPort
 import com.elham.priorityringer.domain.port.SchedulerPort
 import com.elham.priorityringer.domain.port.TelephonyPort
 import dagger.Binds
@@ -55,6 +57,10 @@ abstract class PlatformModule {
     @Binds
     @Singleton
     abstract fun bindAlertPort(impl: AndroidAlertPort): AlertPort
+
+    @Binds
+    @Singleton
+    abstract fun bindRingtonePlayerPort(impl: AndroidRingtonePlayerPort): RingtonePlayerPort
 
     @Binds
     @Singleton

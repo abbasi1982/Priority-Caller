@@ -133,6 +133,81 @@ interface AlertPort {
 }
 
 /**
+ * The last-resort alert: the user's ringtone, played by this app on the **alarm
+ * stream** (FR4 fallback).
+ *
+ * Everything else in this app works by mutating the device and putting it back.
+ * Two cases defeat that, both documented and neither a bug: Silent may refuse to
+ * become audible (`SILENT_NOT_OVERRIDDEN`), and on Android 15+ a Do Not Disturb
+ * mode the user set themselves wins under most-restrictive-wins
+ * (`DND_BYPASS_INEFFECTIVE`). In those cases the app has, until now, only been
+ * able to explain itself.
+ *
+ * This port takes the other route: it changes nothing and plays the sound
+ * itself, with `AudioAttributes.USAGE_ALARM`. Ringer mode does not silence the
+ * alarm stream, so Silent stops mattering; ordinary DND does not filter it, so
+ * most-restrictive-wins stops mattering.
+ *
+ * **It is not a universal bypass, and must never be described as one.** The
+ * platform reference is explicit that when a Do Not Disturb policy disallows
+ * alarms, "the alarm stream will be muted when DND is active" — and Total
+ * Silence disallows them. That is what [alarmAudibility] exists to say *before*
+ * the attempt, so the audit log records a prediction rather than a surprise.
+ *
+ * Implementations must never throw, and [stopAlarmStreamAlert] must be
+ * idempotent and safe from any thread: it is on the path that runs when the user
+ * answers the phone.
+ */
+interface RingtonePlayerPort {
+
+    /**
+     * Whether an alarm-stream alert would actually be heard right now.
+     *
+     * Read *before* playing. `UNKNOWN` is an honest answer — without
+     * notification-policy access the app cannot read the DND policy, and
+     * guessing would defeat the purpose.
+     */
+    fun alarmAudibility(): AlarmAudibility
+
+    /**
+     * Begin looping the user's ringtone on the alarm stream.
+     *
+     * Returns success only if playback is confirmed to have started, per the
+     * read-back rule in Architecture.md § 6.2. Any previous alert is stopped
+     * first, so two can never overlap.
+     */
+    fun startAlarmStreamAlert(): Outcome<AlertDelivery>
+
+    /** Idempotent, synchronous, callable from any thread. */
+    fun stopAlarmStreamAlert()
+
+    enum class AlarmAudibility {
+        AUDIBLE,
+
+        /** Total Silence, or a DND policy that disallows alarms. */
+        MUTED_BY_DND,
+
+        /** The user's alarm volume is zero or the stream is muted. */
+        VOLUME_ZERO,
+
+        /** No notification-policy access, so the policy cannot be read. */
+        UNKNOWN,
+    }
+
+    enum class AlertDelivery {
+        /** Held up by a foreground service; survives the broadcast window. */
+        FOREGROUND_SERVICE,
+
+        /**
+         * Playing from the app process with nothing holding it up. The system
+         * may reclaim the process and cut the alert short. Degraded, not
+         * failed — and the audit log says so.
+         */
+        IN_PROCESS,
+    }
+}
+
+/**
  * Watchdog scheduling (Architecture.md § A.2, § A.3).
  *
  * Backed by WorkManager so the restore deadline survives process death — the

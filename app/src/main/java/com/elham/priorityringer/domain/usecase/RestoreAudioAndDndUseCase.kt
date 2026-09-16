@@ -10,6 +10,7 @@ import com.elham.priorityringer.domain.port.AlertPort
 import com.elham.priorityringer.domain.port.AudioPort
 import com.elham.priorityringer.domain.port.Clock
 import com.elham.priorityringer.domain.port.DndPort
+import com.elham.priorityringer.domain.port.RingtonePlayerPort
 import com.elham.priorityringer.domain.port.SchedulerPort
 import com.elham.priorityringer.domain.repository.AuditRepository
 import com.elham.priorityringer.domain.repository.RestoreRepository
@@ -64,6 +65,7 @@ class RestoreAudioAndDndUseCase @Inject constructor(
     private val audio: AudioPort,
     private val dnd: DndPort,
     private val alert: AlertPort,
+    private val ringtonePlayer: RingtonePlayerPort,
     private val scheduler: SchedulerPort,
     private val restoreRepository: RestoreRepository,
     private val settings: SettingsRepository,
@@ -72,9 +74,23 @@ class RestoreAudioAndDndUseCase @Inject constructor(
 ) {
     private val mutex = Mutex()
 
-    suspend operator fun invoke(trigger: RestoreTrigger): Outcome<Unit> = mutex.withLock {
+    suspend operator fun invoke(trigger: RestoreTrigger): Outcome<Unit> {
+        // Outside the mutex, and before anything else.
+        //
+        // Every trigger that reaches here means the ringing is over, so the
+        // alarm-stream alert must stop whether or not there is a snapshot to
+        // restore — and it must not wait behind a restore that is already in
+        // flight. Someone who has just answered their phone should not hear an
+        // alarm for however long a lock takes to free. Stopping is idempotent
+        // and shares no state with the restore below.
+        ringtonePlayer.stopAlarmStreamAlert()
+
+        return mutex.withLock { restoreLocked(trigger) }
+    }
+
+    private suspend fun restoreLocked(trigger: RestoreTrigger): Outcome<Unit> {
         val snapshot = restoreRepository.getPending()
-            ?: return@withLock Outcome.Failure(
+            ?: return Outcome.Failure(
                 reason = FailureReason.NOTHING_TO_DO,
                 detail = "No pending snapshot",
             ).also {
@@ -125,7 +141,7 @@ class RestoreAudioAndDndUseCase @Inject constructor(
         restoreRepository.clear()
         scheduler.cancelRestoreWatchdog()
 
-        if (failures.isEmpty()) {
+        return if (failures.isEmpty()) {
             audit.log(
                 type = AuditEventType.RESTORATION_COMPLETED,
                 message = "Restored ringer ${snapshot.ringerMode}, volume " +

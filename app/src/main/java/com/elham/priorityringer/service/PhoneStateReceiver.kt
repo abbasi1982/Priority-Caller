@@ -9,6 +9,7 @@ import com.elham.priorityringer.domain.model.CallState
 import com.elham.priorityringer.domain.model.IncomingCallEvent
 import com.elham.priorityringer.domain.phone.PhoneNumberNormalizer
 import com.elham.priorityringer.domain.port.Clock
+import com.elham.priorityringer.domain.port.RingtonePlayerPort
 import com.elham.priorityringer.domain.port.TelephonyPort
 import com.elham.priorityringer.domain.usecase.IncomingCallCoordinator
 import dagger.hilt.EntryPoint
@@ -63,6 +64,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
         fun coordinator(): IncomingCallCoordinator
         fun normalizer(): PhoneNumberNormalizer
         fun telephonyPort(): TelephonyPort
+        fun ringtonePlayer(): RingtonePlayerPort
         fun clock(): Clock
 
         @ApplicationScope
@@ -104,6 +106,19 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
     /** The ringtone is over — answered or ended. Restore is idempotent. */
     private fun handleCallOver(dependencies: Dependencies, state: CallState) {
+        // Stop the alarm-stream alert **first, synchronously, and outside the
+        // coordinator**, before anything that can wait on a lock.
+        //
+        // `onCallStateChanged` takes the coordinator mutex to run the restore.
+        // If a restore were already in flight — a watchdog firing, an
+        // overlapping call — a stop routed through the coordinator would queue
+        // behind it, and the alert would keep playing into the ear of someone
+        // who has just answered the phone. There is nothing to serialise here
+        // anyway: stopping playback is idempotent and touches no shared state
+        // the restore cares about.
+        runCatching { dependencies.ringtonePlayer().stopAlarmStreamAlert() }
+            .onFailure { Timber.w(it, "Could not stop the alarm-stream alert") }
+
         val pending = goAsync()
         dependencies.applicationScope().launch {
             try {

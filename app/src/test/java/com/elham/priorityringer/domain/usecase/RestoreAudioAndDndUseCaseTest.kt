@@ -14,6 +14,7 @@ import com.elham.priorityringer.fake.FakeAuditRepository
 import com.elham.priorityringer.fake.FakeClock
 import com.elham.priorityringer.fake.FakeDndPort
 import com.elham.priorityringer.fake.FakeRestoreRepository
+import com.elham.priorityringer.fake.FakeRingtonePlayerPort
 import com.elham.priorityringer.fake.FakeSchedulerPort
 import com.elham.priorityringer.fake.FakeSettingsRepository
 import com.elham.priorityringer.fake.testSnapshot
@@ -42,6 +43,7 @@ class RestoreAudioAndDndUseCaseTest {
     private val audio = FakeAudioPort(recorder)
     private val dnd = FakeDndPort(recorder)
     private val alert = FakeAlertPort(recorder)
+    private val ringtonePlayer = FakeRingtonePlayerPort(recorder)
     private val scheduler = FakeSchedulerPort(recorder)
     private val restoreRepository = FakeRestoreRepository(recorder)
     private val settings = FakeSettingsRepository()
@@ -52,6 +54,7 @@ class RestoreAudioAndDndUseCaseTest {
         audio = audio,
         dnd = dnd,
         alert = alert,
+        ringtonePlayer = ringtonePlayer,
         scheduler = scheduler,
         restoreRepository = restoreRepository,
         settings = settings,
@@ -685,5 +688,56 @@ class RestoreAudioAndDndUseCaseTest {
             audio.volumeRawRequests,
         )
         assertEquals(RingerMode.SILENT, audio.ringerMode)
+    }
+
+    // -----------------------------------------------------------------------
+    // Stopping the alarm-stream alert
+    //
+    // Every trigger that reaches restore means the ringing is over, so the
+    // alert must stop unconditionally — before the snapshot is even looked at,
+    // and whatever else goes wrong. A phone that will not go quiet is the one
+    // failure worse than a phone that never rang.
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `the alarm-stream alert is stopped even when there is no snapshot to restore`() = runTest {
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        assertEquals(
+            "a fallback alert leaves no snapshot behind — it changes nothing to " +
+                "restore. Gating the stop on a pending snapshot would leave it " +
+                "playing forever",
+            1,
+            ringtonePlayer.stopCount,
+        )
+    }
+
+    @Test
+    fun `the alarm-stream alert is stopped even when the restore itself fails`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot()
+        audio.setRingerModeResult = Outcome.Failure(FailureReason.VERIFICATION_FAILED)
+        dnd.restoreResult = Outcome.Failure(FailureReason.VERIFICATION_FAILED)
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        assertFalse(
+            "a device that refuses to be put back is no reason to keep sounding",
+            ringtonePlayer.playing,
+        )
+    }
+
+    @Test
+    fun `the alarm-stream alert is stopped before the snapshot is read`() = runTest {
+        givenMutatedPhoneWithPendingSnapshot()
+
+        useCase(RestoreTrigger.CALL_ENDED)
+
+        assertTrue(
+            "the stop runs outside the restore mutex, so it cannot queue behind " +
+                "an in-flight restore and keep sounding in the ear of someone " +
+                "who has just answered. Recorded: ${recorder.calls}",
+            recorder.indexOf(CallRecorder.STOP_ALARM_ALERT) <
+                recorder.indexOf(CallRecorder.CLEAR_SNAPSHOT),
+        )
     }
 }

@@ -29,7 +29,7 @@ to be clear about exactly where the line falls.
 
 **Verified** on JDK 17 with Android SDK platform 35 and build-tools 35:
 
-- `./gradlew :app:testDebugUnitTest` — 187 JVM unit tests, green. Covers the
+- `./gradlew :app:testDebugUnitTest` — 202 JVM unit tests, green. Covers the
   main Kotlin sources, the Hilt/KSP graph, resource generation, and the JVM test
   sources.
 - `./gradlew assembleDebug` — `BUILD SUCCESSFUL`, so packaging and dexing work
@@ -83,6 +83,16 @@ checked in at `app/schemas/…/1.json` and `…/2.json`.
   been exercised on real hardware, or an emulator. Those are the cases where the
   restore subsystem either holds or leaves a phone stranded off DND at raised
   volume, and no unit test can settle them.
+- **The alarm-stream fallback has never made a sound.** `AndroidRingtonePlayerPort`
+  plays the user's ringtone on the alarm stream when the ringer approach is
+  verified to have failed. Its logic is covered by JVM tests against a fake, and
+  `AlarmStreamIndependenceTest` compiles — but it has **never been run**, on a
+  phone or an emulator, and no device has ever played this alert. Two facts it
+  depends on are unmeasured: that ringer mode does not silence `STREAM_ALARM`
+  (asserted by that test, unrun), and whether playback started from a
+  `PHONE_STATE` broadcast survives past the ~10s `goAsync()` window without a
+  foreground service (not measured at all; see `AlertDelivery.FOREGROUND_SERVICE`,
+  an enum value nothing currently returns).
 - **No Compose UI tests.** Planned, never written, so there is nothing to run.
 - **`PhoneNumberUtils.compare` has not been probed on the target phone.**
   `PlatformNumberMatchTest` passes on the emulator, which tells you the test is
@@ -98,7 +108,7 @@ checked in at `app/schemas/…/1.json` and `…/2.json`.
   argument from reading the code; a deadlock under a real fast-answer is exactly
   the class of bug that reads fine.
 
-So: the tree builds, and 244 tests pass — 187 on the JVM, 57 on an emulator.
+So: the tree builds, and 259 tests pass — 202 on the JVM, 57 on an emulator.
 That moves it from "never built" to "unproven on a phone". **Do not sideload it onto a family member's
 phone** until the device matrix above has been run.
 
@@ -150,17 +160,26 @@ call would amount to keeping a copy of your call history).
 This list is not modesty. Each item is a real limit of the platform or a
 deliberate scope decision.
 
-- **It cannot guarantee that Silent mode is overridden.** Silent
+- **It cannot guarantee that Silent mode is overridden via the ringer.** Silent
   (`RINGER_MODE_SILENT`) is not the same thing as Vibrate. The app attempts the
   transition to Normal, then re-reads `getRingerMode()`. If the device is still
   silent, it records `SILENT_NOT_OVERRIDDEN` and tells you so. Silent is
   controlled by you and by the device manufacturer, and an app cannot reliably
-  override it.
+  override the **ringer** that way.
+- **When that ringer path is verified inaudible, it may play your ringtone on
+  the alarm stream instead.** That stream is not silenced by Silent or by
+  ordinary Do Not Disturb that still allows alarms. It **is** silenced by Total
+  Silence (`INTERRUPTION_FILTER_NONE`) and by a DND policy that disallows
+  alarms. The app does not claim this always works, does not raise alarm
+  volume, and may stop early (`IN_PROCESS` — no foreground service). Look for
+  `ALARM_STREAM_ALERT_STARTED` or `ALARM_STREAM_ALERT_LIKELY_INAUDIBLE`.
 - **It cannot guarantee that calls ring through Do Not Disturb.** For apps
   targeting API 35+, Android 15 routes these APIs through zen rules that combine
   **most-restrictive-wins**: a stricter Do Not Disturb that the user set
   themselves takes precedence, and no app can override it. The app detects this
   case (`DND_BYPASS_INEFFECTIVE`) and reports it rather than claiming success.
+  The alarm-stream fallback is the extra attempt after that failure; the same
+  Total Silence / no-alarms limits apply.
 - **It cannot raise the volume on every device.** Some audio routes and devices
   report `AudioManager.isVolumeFixed() == true`. On those, no volume change is
   possible at all. The ringer mode can still be switched out of vibrate.
@@ -375,7 +394,7 @@ Contact from Contacts, Test Mode from Settings).
 | **Priority Contacts** | The configured list, each with an enable/disable switch, and removal. Numbers are shown redacted to the last four digits. |
 | **Add Contact** | Add via the system contact picker, or by typing a number. Numbers are normalised on entry and stored under a unique match key. |
 | **Permissions** | Every permission and capability, its live state, a plain-language statement of exactly what stops working without it, and a button that deep-links to the right Settings page. States that the device itself forbids (such as fixed volume) show an explanation and no button, because there is nothing to tap. |
-| **Audit Log** | Reverse-chronological record of what actually happened, capped at 500 entries. This is where a detected failure is visible — e.g. `SILENT_NOT_OVERRIDDEN`, `DND_BYPASS_INEFFECTIVE`, `VOLUME_FIXED`, `RINGER_CHANGE_FAILED`, `RESTORATION_FAILED`. |
+| **Audit Log** | Reverse-chronological record of what actually happened, capped at 500 entries. This is where a detected failure is visible — e.g. `SILENT_NOT_OVERRIDDEN`, `DND_BYPASS_INEFFECTIVE`, `VOLUME_FIXED`, `ALARM_STREAM_ALERT_STARTED`, `ALARM_STREAM_ALERT_LIKELY_INAUDIBLE`, `RINGER_CHANGE_FAILED`, `RESTORATION_FAILED`. |
 | **Settings** | Ring volume percent (10–100, default 80), repeat-call escalation thresholds (default: 2 calls in 5 minutes, or 3 calls in 10 minutes), auto-restore timeout (default 90s, clamped 30–600), logging on/off, and the DND strategy (allow calls through — the default — versus switching DND off for the call). |
 | **Test Mode** | The live capability report, current ringer mode and interruption filter, and simulation. |
 
@@ -401,12 +420,15 @@ A good verification pass:
 
 1. Put the phone on **vibrate**. Run a simulation. The audit log should show
    `RINGER_MODE_CHANGED` and `VOLUME_CHANGED`. Confirm the phone is audible.
-2. Put the phone on **silent**. Run a simulation. Read the result honestly — if
-   you get `SILENT_NOT_OVERRIDDEN`, this device will not be rescued from silent
-   mode by this app, and no setting will change that.
+2. Put the phone on **silent**. Run a simulation. If you get
+   `SILENT_NOT_OVERRIDDEN`, the ringer stayed silent. Then listen: you may hear
+   the ringtone as an **alarm**. That is the fallback. It is **not** “always”
+   — Total Silence, or DND that disallows alarms, will keep the phone quiet
+   (`ALARM_STREAM_ALERT_LIKELY_INAUDIBLE`).
 3. Turn **Do Not Disturb** on. Run a simulation. Look for
    `DND_BYPASS_ATTEMPTED` and check whether it is followed by
-   `DND_BYPASS_INEFFECTIVE`.
+   `DND_BYPASS_INEFFECTIVE`. If the ringer path failed, the same alarm-stream
+   events as Silent apply.
 4. Run a simulation twice (or more) within the escalation window to exercise the
    repeat-caller path: `ESCALATION_TRIGGERED`, then either
    `FULL_SCREEN_ALERT_SHOWN` or `FULL_SCREEN_ALERT_FALLBACK`.

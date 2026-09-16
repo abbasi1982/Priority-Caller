@@ -19,6 +19,7 @@ import com.elham.priorityringer.fake.FakeContactRepository
 import com.elham.priorityringer.fake.FakeDndPort
 import com.elham.priorityringer.fake.FakeEscalationRepository
 import com.elham.priorityringer.fake.FakeRestoreRepository
+import com.elham.priorityringer.fake.FakeRingtonePlayerPort
 import com.elham.priorityringer.fake.FakeSchedulerPort
 import com.elham.priorityringer.fake.FakeSettingsRepository
 import com.elham.priorityringer.fake.FakeTelephonyPort
@@ -53,6 +54,7 @@ class IncomingCallCoordinatorTest {
     private val audio = FakeAudioPort(recorder)
     private val dnd = FakeDndPort(recorder)
     private val alert = FakeAlertPort(recorder)
+    private val ringtonePlayer = FakeRingtonePlayerPort(recorder)
     private val scheduler = FakeSchedulerPort(recorder)
     private val restoreRepository = FakeRestoreRepository(recorder)
     private val escalationRepository = FakeEscalationRepository()
@@ -70,6 +72,7 @@ class IncomingCallCoordinatorTest {
         audio = audio,
         dnd = dnd,
         alert = alert,
+        ringtonePlayer = ringtonePlayer,
         scheduler = scheduler,
         restoreRepository = restoreRepository,
         escalationRepository = escalationRepository,
@@ -87,6 +90,7 @@ class IncomingCallCoordinatorTest {
         audio = audio,
         dnd = dnd,
         alert = alert,
+        ringtonePlayer = ringtonePlayer,
         scheduler = scheduler,
         restoreRepository = restoreRepository,
         settings = settings,

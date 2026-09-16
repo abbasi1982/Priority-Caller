@@ -40,6 +40,7 @@ import com.elham.priorityringer.R
 import com.elham.priorityringer.domain.model.CapabilityReport
 import com.elham.priorityringer.domain.model.CapabilityStatus
 import com.elham.priorityringer.domain.model.Outcome
+import com.elham.priorityringer.domain.model.RingerMode
 import com.elham.priorityringer.domain.usecase.ApplyResult
 import com.elham.priorityringer.presentation.common.LabeledValueRow
 import com.elham.priorityringer.presentation.common.SectionCard
@@ -199,6 +200,23 @@ private fun TestModeContent(
                         }
                     }
                 }
+            }
+
+            // Shown only when it applies.
+            //
+            // A simulated call runs the real apply path, so on a phone that is
+            // not already audible it can start the alarm-stream backup alert —
+            // and there is no real call to end, so nothing arrives to stop it.
+            // Only "Restore now", the auto-restore timer, or the player's own
+            // guard will. A warning that appeared on every visit would be read
+            // as decoration; this one is only here when there is something to
+            // warn about.
+            if (report.currentRingerMode != RingerMode.NORMAL) {
+                Text(
+                    stringResource(R.string.test_simulate_may_sound),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = palette.degraded,
+                )
             }
 
             Button(

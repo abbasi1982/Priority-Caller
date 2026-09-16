@@ -8,6 +8,7 @@ import com.elham.priorityringer.domain.model.InterruptionFilter
 import com.elham.priorityringer.domain.model.Outcome
 import com.elham.priorityringer.domain.model.RingerMode
 import com.elham.priorityringer.domain.port.AlertPort
+import com.elham.priorityringer.domain.port.RingtonePlayerPort
 import com.elham.priorityringer.fake.CallRecorder
 import com.elham.priorityringer.fake.FakeAlertPort
 import com.elham.priorityringer.fake.FakeAudioPort
@@ -16,9 +17,11 @@ import com.elham.priorityringer.fake.FakeClock
 import com.elham.priorityringer.fake.FakeDndPort
 import com.elham.priorityringer.fake.FakeEscalationRepository
 import com.elham.priorityringer.fake.FakeRestoreRepository
+import com.elham.priorityringer.fake.FakeRingtonePlayerPort
 import com.elham.priorityringer.fake.FakeSchedulerPort
 import com.elham.priorityringer.fake.FakeSettingsRepository
 import com.elham.priorityringer.fake.testContact
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -49,6 +52,7 @@ class ApplyPriorityRingUseCaseTest {
     private val audio = FakeAudioPort(recorder)
     private val dnd = FakeDndPort(recorder)
     private val alert = FakeAlertPort(recorder)
+    private val ringtonePlayer = FakeRingtonePlayerPort(recorder)
     private val scheduler = FakeSchedulerPort(recorder)
     private val restoreRepository = FakeRestoreRepository(recorder)
     private val escalationRepository = FakeEscalationRepository()
@@ -63,6 +67,7 @@ class ApplyPriorityRingUseCaseTest {
         audio = audio,
         dnd = dnd,
         alert = alert,
+        ringtonePlayer = ringtonePlayer,
         scheduler = scheduler,
         restoreRepository = restoreRepository,
         escalationRepository = escalationRepository,
@@ -515,6 +520,9 @@ class ApplyPriorityRingUseCaseTest {
         audio.ringerMode = RingerMode.SILENT
         audio.setRingerModeResult = Outcome.Failure(FailureReason.SILENT_NOT_OVERRIDDEN)
         audio.volumeFixed = true
+        // Including the fallback. Since it exists, "every attempt failed" is
+        // only true when it failed too — that is the whole point of having it.
+        ringtonePlayer.startResult = Outcome.Failure(FailureReason.UNKNOWN)
 
         val result = useCase(contact, settings)
 
@@ -528,6 +536,7 @@ class ApplyPriorityRingUseCaseTest {
             audio.ringerMode = RingerMode.SILENT
             audio.setRingerModeResult = Outcome.Failure(FailureReason.SILENT_NOT_OVERRIDDEN)
             audio.volumeFixed = true
+            ringtonePlayer.startResult = Outcome.Failure(FailureReason.UNKNOWN)
 
             useCase(contact, settings)
 
@@ -613,5 +622,223 @@ class ApplyPriorityRingUseCaseTest {
             "declining to snapshot again must not mean declining to ring",
             second.ringer,
         )
+    }
+
+    // -----------------------------------------------------------------------
+    // The alarm-stream fallback
+    //
+    // It exists for the two cases the rest of the app can only apologise for:
+    // Silent that will not lift, and a Do Not Disturb this app cannot outrank.
+    // The risk is not that it fails to fire — it is that it fires when the
+    // phone is already ringing, putting a second ringtone on top of the real
+    // one, milliseconds out of phase. Most of these tests are about when it
+    // stays quiet.
+    // -----------------------------------------------------------------------
+
+    /** The phone was made audible. Nothing more is needed and nothing more is done. */
+    @Test
+    fun `no fallback when the ringer was successfully made audible`() = runTest {
+        givenSuppressedPhone()
+
+        val result = useCase(contact, settings)
+
+        assertNull(result.alarmAlert)
+        assertEquals(0, ringtonePlayer.startCount)
+    }
+
+    /**
+     * The double-ring trap.
+     *
+     * After a *successful* bypass the filter is still PRIORITY — that is what
+     * success looks like, calls allowed through an otherwise restrictive
+     * filter. `InterruptionFilter.maySuppressCalls` is true for PRIORITY, so a
+     * gate written against it would fire here, on an ordinary working call.
+     */
+    @Test
+    fun `no fallback when DND is still PRIORITY after a bypass that worked`() = runTest {
+        givenSuppressedPhone()
+        dnd.bypassResultFilter = InterruptionFilter.PRIORITY
+
+        val result = useCase(contact, settings)
+
+        assertNull(
+            "the bypass succeeded and the phone is audible; a second ringtone " +
+                "here would play over the real one",
+            result.alarmAlert,
+        )
+    }
+
+    /** A phone that was already NORMAL needed no ringer change; that is success. */
+    @Test
+    fun `no fallback when the phone was already audible and nothing needed doing`() = runTest {
+        audio.ringerMode = RingerMode.NORMAL
+        audio.currentVolumeIndex = 9
+        dnd.policyAccess = true
+        dnd.filter = InterruptionFilter.ALL
+
+        val result = useCase(contact, settings)
+
+        assertNull(
+            "applyRingerMode returns null when there was nothing to do. That is " +
+                "a success, and reading it as 'not attempted' would fire the " +
+                "fallback on every ordinary call",
+            result.alarmAlert,
+        )
+    }
+
+    @Test
+    fun `the fallback plays when silent could not be overridden`() = runTest {
+        givenSilentPhoneThatRefusesToBecomeAudible()
+
+        val result = useCase(contact, settings)
+
+        assertTrue(
+            "this is the case the fallback exists for; without it the call is " +
+                "simply never heard",
+            result.alarmAlert?.isSuccess == true,
+        )
+        assertEquals(1, ringtonePlayer.startCount)
+    }
+
+    @Test
+    fun `the fallback plays when DND could not be relaxed`() = runTest {
+        givenSuppressedPhone()
+        dnd.applyBypassResult = Outcome.Failure(FailureReason.DND_BYPASS_INEFFECTIVE)
+
+        val result = useCase(contact, settings)
+
+        assertTrue(
+            "Android 15 most-restrictive-wins: the user's own DND outranks us, " +
+                "and the alarm stream is the only route left",
+            result.alarmAlert?.isSuccess == true,
+        )
+    }
+
+    @Test
+    fun `the fallback plays when notification-policy access was never granted`() = runTest {
+        givenSuppressedPhone()
+        dnd.policyAccess = false
+
+        val result = useCase(contact, settings)
+
+        assertTrue(result.alarmAlert?.isSuccess == true)
+    }
+
+    /**
+     * The report, not the ring. "Priority ringing had no effect" while the phone
+     * is audibly ringing is the worst kind of wrong entry: it would send the
+     * user to change settings that are working.
+     */
+    @Test
+    fun `a successful fallback means the call is not reported as unheard`() = runTest {
+        givenSilentPhoneThatRefusesToBecomeAudible()
+
+        val result = useCase(contact, settings)
+
+        assertFalse(result.allAttemptsFailed)
+        assertFalse(
+            "the phone rang; the log must not claim otherwise",
+            audit.entries.any { it.message.contains("had no effect") },
+        )
+    }
+
+    /**
+     * The Dashboard banner, which is the report the user actually sees.
+     *
+     * `SILENT_NOT_OVERRIDDEN` is logged at step 4, before the fallback is even
+     * attempted, and it raises a persistent banner. If the fallback then works,
+     * the phone rang — and a standing banner saying it did not would send the
+     * user to fix settings that are doing their job.
+     */
+    @Test
+    fun `a successful fallback clears the banner the failed ringer change raised`() = runTest {
+        givenSilentPhoneThatRefusesToBecomeAudible()
+
+        useCase(contact, settings)
+
+        assertNull(
+            "the phone rang; no banner should be standing. Entries: " +
+                audit.entries.map { it.type },
+            audit.observeLatestFailure().first(),
+        )
+    }
+
+    @Test
+    fun `a fallback that fails leaves the banner standing`() = runTest {
+        givenSilentPhoneThatRefusesToBecomeAudible()
+        ringtonePlayer.startResult = Outcome.Failure(FailureReason.UNKNOWN)
+
+        useCase(contact, settings)
+
+        assertNotNull(
+            "nothing worked; the user must be told",
+            audit.observeLatestFailure().first(),
+        )
+    }
+
+    @Test
+    fun `a fallback that also fails leaves the call reported as unheard`() = runTest {
+        givenSilentPhoneThatRefusesToBecomeAudible()
+        ringtonePlayer.startResult = Outcome.Failure(FailureReason.UNKNOWN)
+
+        val result = useCase(contact, settings)
+
+        assertTrue(result.allAttemptsFailed)
+    }
+
+    @Test
+    fun `a DND policy that mutes alarms is recorded before the attempt, not after`() = runTest {
+        givenSilentPhoneThatRefusesToBecomeAudible()
+        ringtonePlayer.audibility = RingtonePlayerPort.AlarmAudibility.MUTED_BY_DND
+
+        useCase(contact, settings)
+
+        val warned = audit.entries.indexOfFirst {
+            it.type == AuditEventType.ALARM_STREAM_ALERT_LIKELY_INAUDIBLE
+        }
+        val played = audit.entries.indexOfFirst {
+            it.type == AuditEventType.ALARM_STREAM_ALERT_STARTED
+        }
+        assertTrue("expected a prediction entry", warned >= 0)
+        assertTrue(
+            "the reason must be on record before the attempt, so a phone that " +
+                "stays quiet has an explanation rather than a contradiction",
+            warned < played,
+        )
+    }
+
+    /**
+     * The prediction reads settings; it does not read the future. Declining to
+     * try on the strength of it would turn a guess into a guaranteed silence.
+     */
+    @Test
+    fun `the fallback is still attempted when it is predicted to be inaudible`() = runTest {
+        givenSilentPhoneThatRefusesToBecomeAudible()
+        ringtonePlayer.audibility = RingtonePlayerPort.AlarmAudibility.MUTED_BY_DND
+
+        useCase(contact, settings)
+
+        assertEquals(1, ringtonePlayer.startCount)
+    }
+
+    /**
+     * Silent, and the platform will not lift it.
+     *
+     * Both writes fail together, which is what a real device does: the same
+     * missing permission that refuses `setRingerMode` refuses `setStreamVolume`
+     * across the same Do Not Disturb boundary.
+     */
+    private fun givenSilentPhoneThatRefusesToBecomeAudible() {
+        audio.ringerMode = RingerMode.SILENT
+        audio.currentVolumeIndex = 0
+        audio.maxVolumeIndex = 15
+        audio.setRingerModeResult = Outcome.Failure(FailureReason.SILENT_NOT_OVERRIDDEN)
+        audio.setRingVolumePercentResult =
+            Outcome.Failure(FailureReason.NOTIFICATION_POLICY_ACCESS_DENIED)
+        // And Do Not Disturb cannot be relaxed either. This is the total
+        // blackout: the fallback is the only attempt left that can succeed,
+        // which is what makes the reporting assertions here mean anything.
+        dnd.policyAccess = false
+        dnd.filter = InterruptionFilter.NONE
     }
 }
