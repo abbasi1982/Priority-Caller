@@ -27,6 +27,7 @@ val Capability.labelRes: Int
         Capability.POST_NOTIFICATIONS -> R.string.capability_post_notifications
         Capability.FULL_SCREEN_INTENT -> R.string.capability_full_screen_intent
         Capability.VOLUME_ADJUSTABLE -> R.string.capability_volume_adjustable
+        Capability.BATTERY_OPTIMISATION_EXEMPT -> R.string.capability_battery_optimisation
     }
 
 /** What granting this buys. Shown above the [CapabilityStatus.consequence]. */
@@ -40,6 +41,8 @@ val Capability.purposeRes: Int
         Capability.POST_NOTIFICATIONS -> R.string.capability_post_notifications_purpose
         Capability.FULL_SCREEN_INTENT -> R.string.capability_full_screen_intent_purpose
         Capability.VOLUME_ADJUSTABLE -> R.string.capability_volume_adjustable_purpose
+        Capability.BATTERY_OPTIMISATION_EXEMPT ->
+            R.string.capability_battery_optimisation_purpose
     }
 
 @get:StringRes
@@ -57,6 +60,7 @@ val Capability.actionLabelRes: Int
     get() = when (this) {
         Capability.NOTIFICATION_POLICY_ACCESS -> R.string.action_open_dnd_access
         Capability.FULL_SCREEN_INTENT -> R.string.action_open_full_screen_settings
+        Capability.BATTERY_OPTIMISATION_EXEMPT -> R.string.action_open_battery_settings
         else -> R.string.action_grant
     }
 

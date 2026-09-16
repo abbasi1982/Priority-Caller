@@ -68,6 +68,21 @@ enum class Capability(val isRequired: Boolean) {
 
     /** Device-level: some routes report a fixed volume (§ 7.1). */
     VOLUME_ADJUSTABLE(isRequired = false),
+
+    /**
+     * Whether the app is exempt from battery optimisation.
+     *
+     * Deliberately **not required**, and the wording around it must stay
+     * honest: exempting the app does not change whether a call is detected.
+     * `PHONE_STATE` is a system broadcast and Android delivers it either way.
+     *
+     * What it protects is the *safety net*. The restore watchdog is a
+     * WorkManager job, and deferrable background work is exactly what Doze and
+     * the restricted app-standby buckets delay. A delayed watchdog means a
+     * phone that was left loud stays loud past the timeout the settings screen
+     * promises.
+     */
+    BATTERY_OPTIMISATION_EXEMPT(isRequired = false),
 }
 
 /**

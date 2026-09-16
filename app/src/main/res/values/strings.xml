@@ -31,6 +31,7 @@
     <string name="action_grant">Grant permission</string>
     <string name="action_open_dnd_access">Open Do Not Disturb access</string>
     <string name="action_open_full_screen_settings">Open full-screen notification settings</string>
+    <string name="action_open_battery_settings">Allow background running</string>
     <string name="action_view_audit_log">View activity log</string>
     <string name="action_decrease">Decrease %1$s</string>
     <string name="action_increase">Increase %1$s</string>
@@ -79,6 +80,7 @@
     <string name="capability_post_notifications">Notifications</string>
     <string name="capability_full_screen_intent">Full-screen notifications</string>
     <string name="capability_volume_adjustable">Adjustable ring volume</string>
+    <string name="capability_battery_optimisation">Battery optimisation</string>
 
     <string name="capability_read_phone_state_purpose">Lets the app notice that a call is coming in.</string>
     <string name="capability_read_call_log_purpose">Lets the app see the caller\'s number. On Android 9 and later the number is withheld from apps without this permission, so it is the only way to tell a priority caller from anyone else.</string>
@@ -87,6 +89,7 @@
     <string name="capability_post_notifications_purpose">Lets the app show the alert for a repeat caller.</string>
     <string name="capability_full_screen_intent_purpose">Lets the repeat-caller alert take over the screen instead of appearing as a banner.</string>
     <string name="capability_volume_adjustable_purpose">Whether this device lets an app change the ring volume at all.</string>
+    <string name="capability_battery_optimisation_purpose">Keeps the timer that restores your ringer after a call from being delayed while the phone is idle.</string>
 
     <string name="capability_state_granted">Granted</string>
     <string name="capability_state_denied">Not granted</string>

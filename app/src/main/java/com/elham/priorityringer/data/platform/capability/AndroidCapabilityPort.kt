@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import com.elham.priorityringer.domain.model.Capability
 import com.elham.priorityringer.domain.model.CapabilityReport
@@ -15,6 +16,7 @@ import com.elham.priorityringer.domain.port.DndPort
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import timber.log.Timber
 
 /**
  * Builds the live [CapabilityReport] (FR6, FR8).
@@ -52,6 +54,7 @@ class AndroidCapabilityPort @Inject constructor(
                 postNotifications(),
                 fullScreenIntent(),
                 volumeAdjustable(volumeFixed),
+                batteryOptimisation(),
             ),
             sdkInt = Build.VERSION.SDK_INT,
             targetSdk = context.applicationInfo.targetSdkVersion,
@@ -154,6 +157,54 @@ class AndroidCapabilityPort @Inject constructor(
             "cannot be raised. The ringer mode can still be switched out of " +
             "vibrate.",
     )
+
+    /**
+     * Battery optimisation exemption.
+     *
+     * The consequence text is deliberately narrow. It would be easy — and
+     * wrong — to say "without this the app may miss calls". `PHONE_STATE` is a
+     * system broadcast and is delivered to a manifest receiver regardless of
+     * the app's battery bucket. What optimisation actually delays is
+     * *deferrable background work*, which is what the restore watchdog is.
+     *
+     * Overstating it here would train the user to grant everything on the
+     * strength of a claim that is not true, which is the same dishonesty as
+     * understating a real failure.
+     *
+     * `isIgnoringBatteryOptimizations` is guarded like every other probe in
+     * this class: an OEM build that refuses the query must degrade to "cannot
+     * tell", never crash the screen that exists to explain the app's state.
+     */
+    private fun batteryOptimisation(): CapabilityStatus {
+        val exempt = runCatching {
+            context.getSystemService(PowerManager::class.java)
+                ?.isIgnoringBatteryOptimizations(context.packageName)
+        }.getOrElse { error ->
+            Timber.w(error, "Could not read battery optimisation state")
+            null
+        }
+
+        return CapabilityStatus(
+            capability = Capability.BATTERY_OPTIMISATION_EXEMPT,
+            state = when (exempt) {
+                true -> CapabilityStatus.State.GRANTED
+                false -> CapabilityStatus.State.DENIED
+                // Unreadable: offering a button would be guessing, and showing
+                // a red ❌ would be asserting something we do not know.
+                null -> CapabilityStatus.State.RESTRICTED
+            },
+            consequence = "Calls are still detected either way — Android delivers " +
+                "the call alert to this app regardless. What battery " +
+                "optimisation can delay is the timer that puts your ringer and " +
+                "Do Not Disturb back if a call ends unexpectedly, so the phone " +
+                "could stay loud for longer than the auto-restore setting says.",
+            detail = if (exempt == null) {
+                "This device did not let the app check its battery optimisation state."
+            } else {
+                null
+            },
+        )
+    }
 
     /** Documented limitations for this specific device and API level (§ 3). */
     private fun buildNotes(volumeFixed: Boolean): List<String> = buildList {

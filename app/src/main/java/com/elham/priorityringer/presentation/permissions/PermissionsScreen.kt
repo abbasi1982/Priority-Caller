@@ -113,7 +113,17 @@ fun PermissionsScreen(
             permissionLauncher.launch(permission)
         } else {
             val intent = SettingsLinks.settingsIntent(context, capability)
-            if (intent == null || !SettingsLinks.launch(context, intent)) {
+            val opened = intent != null && SettingsLinks.launch(context, intent)
+
+            // The battery-optimisation request is the one action a device may
+            // refuse outright. Falling back to the list screen is worse — the
+            // user has to find the app themselves — but it beats a button that
+            // reports failure and leaves them nowhere.
+            val fellBack = !opened &&
+                capability == Capability.BATTERY_OPTIMISATION_EXEMPT &&
+                SettingsLinks.launch(context, SettingsLinks.batteryOptimisationFallback())
+
+            if (!opened && !fellBack) {
                 viewModel.notify(R.string.permissions_no_settings_screen)
             }
         }

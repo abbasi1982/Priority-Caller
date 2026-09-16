@@ -40,6 +40,7 @@ object SettingsLinks {
         Capability.NOTIFICATION_POLICY_ACCESS,
         Capability.FULL_SCREEN_INTENT,
         Capability.VOLUME_ADJUSTABLE,
+        Capability.BATTERY_OPTIMISATION_EXEMPT,
         -> null
     }
 
@@ -70,8 +71,36 @@ object SettingsLinks {
             Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                 .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
 
+        // The direct request, which shows a system dialog naming this app.
+        //
+        // ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS needs no permission, but
+        // it opens an alphabetical list of every installed app and leaves the
+        // user to find this one — the exact "dumped three levels away" failure
+        // this object exists to avoid. Verified on an emulator: it lands on
+        // "App battery usage" with Android Auto at the top.
+        //
+        // This action needs REQUEST_IGNORE_BATTERY_OPTIMIZATIONS declared in
+        // the manifest. It is a documented public API, not a hidden one. It is
+        // also Play-policy-restricted, which does not apply here: this app is
+        // installed by hand for one family member and has no INTERNET
+        // permission, let alone a Play listing. If that ever changes, switch to
+        // [batteryOptimisationFallback] — the screen already falls back to it.
+        Capability.BATTERY_OPTIMISATION_EXEMPT ->
+            Intent(
+                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                packageUri(context),
+            )
+
         else -> null
     }
+
+    /**
+     * Used when the direct request above is refused or unhandled — some OEM
+     * builds omit it. Opens the battery-optimisation list, where the app is
+     * findable with scrolling, which is worse but is not nothing.
+     */
+    fun batteryOptimisationFallback(): Intent =
+        Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
 
     fun appDetails(context: Context): Intent =
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri(context))

@@ -30,6 +30,19 @@
     -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!--
+      Lets the Permissions screen show the system dialog for this app by name,
+      instead of dropping the user into an alphabetical list of every installed
+      app. Nothing is requested silently: the dialog is the system's own, and
+      the exemption can be revoked in Settings at any time.
+
+      Google Play restricts this permission. That does not apply here — the app
+      is installed by hand and has no INTERNET permission, let alone a listing.
+      For a Play release, drop this and use the list screen instead; the
+      Permissions screen already falls back to it.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- FR5 alert. On API 34+ full-screen intent additionally needs a user allowance. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
