@@ -40,6 +40,19 @@ to be clear about exactly where the line falls.
   the committed schemas and exercises the 1 → 2 migration), the 8 in
   `PlatformNumberMatchTest`, and 5 in `RingerModeAndVolumeCouplingTest`.
 
+**Five of those tests skip unless you grant Do Not Disturb access first.**
+`RingerModeAndVolumeCouplingTest` moves the ringer in and out of silent, which
+the platform gates on notification-policy access — and a Gradle run reinstalls
+the app, which revokes it. Grant it *after* the install and re-run:
+
+```bash
+adb shell cmd notification allow_dnd com.elham.priorityringer
+adb shell am instrument -w   -e class com.elham.priorityringer.data.platform.audio.RingerModeAndVolumeCouplingTest   com.elham.priorityringer.test/com.elham.priorityringer.HiltTestRunner
+```
+
+They skip rather than fail, which is correct but easy to read as green. A run
+reporting "57 tests, 5 skipped" has not checked the ringer coupling at all.
+
 **An emulator cannot reproduce the bug that mattered most.** The Silent-to-
 Vibrate failure depends on the device's vibrate-when-ringing setting: writing
 ring index 0 while silent lands in VIBRATE on the phone that reported it, and

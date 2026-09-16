@@ -11,8 +11,10 @@ import com.elham.priorityringer.domain.phone.PhoneNumberNormalizer
 import com.elham.priorityringer.domain.port.Clock
 import com.elham.priorityringer.domain.port.TelephonyPort
 import com.elham.priorityringer.domain.usecase.IncomingCallCoordinator
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -34,22 +36,51 @@ import timber.log.Timber
  * write, which fit comfortably inside the broadcast window, and this avoids a
  * `foregroundServiceType` the app cannot honestly justify — § 5.4 rules out
  * `FOREGROUND_SERVICE_TYPE_PHONE_CALL` because this is not a calling app.
+ *
+ * **Dependencies are resolved here, not injected by `@AndroidEntryPoint`**, for
+ * the same reason as [BootCompletedReceiver]. That annotation injects in
+ * generated code that runs *before* this class does, so a failure throws
+ * straight out of `onReceive` with nothing this class can do about it — and §
+ * 4 is explicit that an exception escaping here kills the app **during an
+ * incoming call**. The rule was already "never throw out of `onReceive`"; it
+ * has to cover obtaining the collaborators as much as using them.
+ *
+ * This is not theoretical. A `BOOT_COMPLETED` arriving mid-instrumentation
+ * killed an entire test run with "The component was not created", because under
+ * instrumentation the app runs on `HiltTestApplication`, which has no component
+ * until a test installs one. The same is true here for any `PHONE_STATE` that
+ * lands during an instrumented run — a real call on the test phone.
+ *
+ * In production the graph is always present, so this changes nothing about the
+ * call path. It only decides what happens when there is no graph: a logged
+ * no-op instead of a dead process.
  */
-@AndroidEntryPoint
 class PhoneStateReceiver : BroadcastReceiver() {
 
-    @Inject lateinit var coordinator: IncomingCallCoordinator
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface Dependencies {
+        fun coordinator(): IncomingCallCoordinator
+        fun normalizer(): PhoneNumberNormalizer
+        fun telephonyPort(): TelephonyPort
+        fun clock(): Clock
 
-    @Inject lateinit var normalizer: PhoneNumberNormalizer
-
-    @Inject lateinit var telephonyPort: TelephonyPort
-
-    @Inject lateinit var clock: Clock
-
-    @Inject @ApplicationScope lateinit var scope: CoroutineScope
+        @ApplicationScope
+        fun applicationScope(): CoroutineScope
+    }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
+
+        val dependencies = runCatching {
+            EntryPointAccessors.fromApplication(
+                context.applicationContext,
+                Dependencies::class.java,
+            )
+        }.getOrElse { error ->
+            Timber.w(error, "No dependency graph available; ignoring this PHONE_STATE")
+            return
+        }
 
         val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
 
@@ -57,25 +88,27 @@ class PhoneStateReceiver : BroadcastReceiver() {
         val rawNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
 
         when (state) {
-            TelephonyManager.EXTRA_STATE_RINGING -> handleRinging(rawNumber)
+            TelephonyManager.EXTRA_STATE_RINGING -> handleRinging(dependencies, rawNumber)
 
             // Both states restore. Belt-and-braces alongside the
             // TelephonyCallback path (§ 5.2): the callback only runs while the
             // process is alive, whereas this broadcast will restart it — which
             // is precisely the case where a snapshot is stranded on disk.
-            TelephonyManager.EXTRA_STATE_OFFHOOK -> handleCallOver(CallState.OFFHOOK)
+            TelephonyManager.EXTRA_STATE_OFFHOOK ->
+                handleCallOver(dependencies, CallState.OFFHOOK)
 
-            TelephonyManager.EXTRA_STATE_IDLE -> handleCallOver(CallState.IDLE)
+            TelephonyManager.EXTRA_STATE_IDLE ->
+                handleCallOver(dependencies, CallState.IDLE)
         }
     }
 
     /** The ringtone is over — answered or ended. Restore is idempotent. */
-    private fun handleCallOver(state: CallState) {
+    private fun handleCallOver(dependencies: Dependencies, state: CallState) {
         val pending = goAsync()
-        scope.launch {
+        dependencies.applicationScope().launch {
             try {
                 withTimeoutOrNull(WORK_TIMEOUT_MS) {
-                    coordinator.onCallStateChanged(state)
+                    dependencies.coordinator().onCallStateChanged(state)
                 }
             } catch (t: Throwable) {
                 Timber.e(t, "Error restoring after call state %s", state)
@@ -85,8 +118,8 @@ class PhoneStateReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun handleRinging(rawNumber: String?) {
-        val now = clock.nowEpochMs()
+    private fun handleRinging(dependencies: Dependencies, rawNumber: String?) {
+        val now = dependencies.clock().nowEpochMs()
 
         // § 5.1 — the system may deliver more than one RINGING broadcast for a
         // single call, one of them blank. Debounce so a duplicate cannot be
@@ -102,7 +135,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
         if (!blank) lastNumberedRingingAtMs = now
 
         val pending = goAsync()
-        scope.launch {
+        dependencies.applicationScope().launch {
             try {
                 // A blank delivery waits before it is allowed to claim the
                 // caller is unidentifiable.
@@ -127,11 +160,11 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 }
 
                 withTimeoutOrNull(WORK_TIMEOUT_MS) {
-                    coordinator.onIncomingCall(
+                    dependencies.coordinator().onIncomingCall(
                         IncomingCallEvent(
-                            number = normalizer.normalize(
+                            number = dependencies.normalizer().normalize(
                                 rawNumber,
-                                telephonyPort.defaultCountryIso(),
+                                dependencies.telephonyPort().defaultCountryIso(),
                             ),
                             timestampEpochMs = now,
                         ),
