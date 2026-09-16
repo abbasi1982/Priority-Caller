@@ -21,6 +21,15 @@
     -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
+    <!--
+      Lets the app run one reconciliation pass after a reboot, in case the
+      phone was powered off mid-priority-call with the ringer still raised.
+      It is NOT what makes calls detected: PhoneStateReceiver is a manifest
+      receiver, so the system starts this app to deliver PHONE_STATE across
+      reboots without it.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!-- FR5 alert. On API 34+ full-screen intent additionally needs a user allowance. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
@@ -83,6 +92,21 @@
             android:exported="true">
             <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.PHONE_STATE" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          Restores a snapshot stranded by a power-off mid-call. Only
+          BOOT_COMPLETED: the snapshot is in credential-encrypted storage and
+          is not readable before the first unlock, so LOCKED_BOOT_COMPLETED
+          would be too early.
+        -->
+        <receiver
+            android:name=".service.BootCompletedReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
 
