@@ -27,24 +27,35 @@ to be clear about exactly where the line falls.
 
 **Read this before anything else.**
 
-**Verified:** `./gradlew :app:testDebugUnitTest` builds and passes — 167 JVM unit
-tests — on JDK 17 with Android SDK platform 35 and build-tools 35. That covers
-the main Kotlin sources, the Hilt/KSP graph, resource generation, and the JVM
-test sources. The Gradle wrapper is committed and usable, dependency versions in
+**Verified** on JDK 17 with Android SDK platform 35 and build-tools 35:
+
+- `./gradlew :app:testDebugUnitTest` — 167 JVM unit tests, green. Covers the
+  main Kotlin sources, the Hilt/KSP graph, resource generation, and the JVM test
+  sources.
+- `./gradlew assembleDebug` — `BUILD SUCCESSFUL`, so packaging and dexing work
+  and a real APK comes out. Lint has not been run.
+
+The Gradle wrapper is committed and usable, dependency versions in
 `gradle/libs.versions.toml` resolved as written, and Room's exported schema is
 checked in at `app/schemas/…/1.json`.
 
 **Not verified — and this is the part that matters:**
 
 - **No instrumented run.** `connectedAndroidTest` has never executed. Every
-  androidTest source (DAO tests, `MigrationTest`, the `PhoneNumberUtils.compare`
-  test) is unrun, and a JVM test passing says nothing about them.
+  androidTest source — the five DAO tests and `MigrationTest` — is unrun, and a
+  JVM test passing says nothing about them.
 - **No device matrix.** The behaviour this app exists for — Vibrate, Silent, DND
   on and off, a long answered call, and killing the process mid-ring — has not
   been exercised on real hardware, or an emulator. Those are the cases where the
   restore subsystem either holds or leaves a phone stranded off DND at raised
   volume, and no unit test can settle them.
-- **No Compose UI tests.**
+- **Two planned tests were never written**, so there is nothing to run:
+  - Compose UI tests.
+  - An instrumented test for `PhoneNumberUtils.compare`, required by
+    `ImplementationPlan.md` § Phase 2. `AndroidTelephonyPort` calls it as an
+    additional accept on top of `PhoneNumberNormalizer`, and it is the one
+    matching path with no coverage of any kind — the JVM tests cover the
+    normalizer, which is the layer that does *not* call it.
 - **Lock ordering is reasoned, not executed.** Restore always takes the
   coordinator mutex before the restore mutex, never the reverse. That is an
   argument from reading the code; a deadlock under a real fast-answer is exactly
