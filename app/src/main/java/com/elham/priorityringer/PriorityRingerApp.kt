@@ -9,7 +9,6 @@ import com.elham.priorityringer.domain.usecase.IncomingCallCoordinator
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
@@ -67,7 +66,18 @@ class PriorityRingerApp : Application(), Configuration.Provider {
     private fun observeCallState() {
         scope.launch {
             runCatching {
-                telephonyPort.callState().collectLatest { state ->
+                // `collect`, never `collectLatest`.
+                //
+                // collectLatest cancels the previous collector body when a new
+                // value arrives. Here that body is a restore — so a RINGING ->
+                // OFFHOOK -> IDLE sequence could cancel a restore part-way
+                // through, after it had put the ringer back but before the DND
+                // filter, leaving the device half-restored with its snapshot
+                // already cleared.
+                //
+                // Restores are short and idempotent, so processing every state
+                // in order is both correct and cheap.
+                telephonyPort.callState().collect { state ->
                     coordinator.onCallStateChanged(state)
                 }
             }.onFailure { Timber.e(it, "Call-state observation stopped") }

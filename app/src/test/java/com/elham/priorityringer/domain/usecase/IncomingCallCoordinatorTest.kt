@@ -94,6 +94,8 @@ class IncomingCallCoordinatorTest {
         settings = settings,
         audit = audit,
         telephony = telephony,
+        restoreRepository = restoreRepository,
+        clock = clock,
     )
 
     private fun callFrom(raw: String?) = IncomingCallEvent(
@@ -388,8 +390,10 @@ class IncomingCallCoordinatorTest {
         givenSuppressedPhoneAndOneContact()
         coordinator.onIncomingCall(callFrom("5551234567"))
         // The process dies here: no IDLE callback ever arrives. By the time it
-        // restarts, telephony is idle again.
+        // restarts the call is long over, telephony is idle, and the snapshot
+        // is past its own auto-restore deadline.
         telephony.currentState = CallState.IDLE
+        clock.advanceSeconds(120)
 
         coordinator.reconcileStaleRestore()
 
@@ -407,6 +411,11 @@ class IncomingCallCoordinatorTest {
         // onCreate runs while that call is still ringing. Restoring now would
         // put the phone back to vibrate and re-arm DND mid-ring - silencing the
         // very call the app exists to make audible.
+        //
+        // The clock is aged past the snapshot deadline deliberately, so the
+        // expiry gate is satisfied and this test genuinely exercises the
+        // call-state gate rather than passing for the wrong reason.
+        clock.advanceSeconds(120)
         telephony.currentState = CallState.RINGING
 
         coordinator.reconcileStaleRestore()
@@ -424,6 +433,7 @@ class IncomingCallCoordinatorTest {
         givenSuppressedPhoneAndOneContact()
         coordinator.onIncomingCall(callFrom("5551234567"))
         recorder.reset()
+        clock.advanceSeconds(120)
         telephony.currentState = CallState.OFFHOOK
 
         coordinator.reconcileStaleRestore()
@@ -431,6 +441,37 @@ class IncomingCallCoordinatorTest {
         assertNotNull(restoreRepository.pending)
         assertEquals(emptyList<String>(), recorder.deviceMutations)
     }
+
+    /**
+     * The case the call-state read cannot catch.
+     *
+     * `getCallState()` reads the default subscription, which the platform warns
+     * may disagree with the broadcast — on a dual-SIM phone it can report IDLE
+     * while the *other* SIM is ringing. Missing permission and read failures
+     * also fail open to IDLE by design, since never restoring is worse. So the
+     * snapshot's own deadline, not telephony, is what actually protects a live
+     * call here.
+     */
+    @Test
+    fun `cold-start reconciliation defers on a fresh snapshot even when telephony claims idle`() =
+        runTest {
+            givenSuppressedPhoneAndOneContact()
+            coordinator.onIncomingCall(callFrom("5551234567"))
+            recorder.reset()
+
+            // Telephony lying, or reading the wrong SIM. The snapshot was
+            // written seconds ago, so the call cannot be over.
+            telephony.currentState = CallState.IDLE
+
+            coordinator.reconcileStaleRestore()
+
+            assertNotNull(
+                "a snapshot younger than its own auto-restore deadline belongs to a " +
+                    "live call, whatever telephony reports",
+                restoreRepository.pending,
+            )
+            assertEquals(emptyList<String>(), recorder.deviceMutations)
+        }
 
     @Test
     fun `cold-start reconciliation with nothing pending is a silent no-op`() = runTest {

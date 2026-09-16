@@ -4,8 +4,10 @@ import com.elham.priorityringer.domain.model.AuditEventType
 import com.elham.priorityringer.domain.model.CallMatchResult
 import com.elham.priorityringer.domain.model.CallState
 import com.elham.priorityringer.domain.model.IncomingCallEvent
+import com.elham.priorityringer.domain.port.Clock
 import com.elham.priorityringer.domain.port.TelephonyPort
 import com.elham.priorityringer.domain.repository.AuditRepository
+import com.elham.priorityringer.domain.repository.RestoreRepository
 import com.elham.priorityringer.domain.repository.SettingsRepository
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -39,6 +41,8 @@ class IncomingCallCoordinator @Inject constructor(
     private val settings: SettingsRepository,
     private val audit: AuditRepository,
     private val telephony: TelephonyPort,
+    private val restoreRepository: RestoreRepository,
+    private val clock: Clock,
 ) {
     private val mutex = Mutex()
 
@@ -132,7 +136,21 @@ class IncomingCallCoordinator @Inject constructor(
     suspend fun onCallStateChanged(state: CallState) {
         if (state == CallState.RINGING) return
 
-        restore(RestoreTrigger.CALL_ENDED)
+        // Same lock as onIncomingCall, and that is the whole point.
+        //
+        // RestoreAudioAndDnd has its own internal mutex, but that only
+        // serialises restores against each other — it does nothing to stop a
+        // restore interleaving with an *apply*. The failure that allows: the
+        // user answers fast, so OFFHOOK arrives while the RINGING apply is
+        // still inside its goAsync window. Restore then reads the snapshot,
+        // puts the device back, clears the row and cancels the watchdog —
+        // while apply is still part-way through raising the volume. The phone
+        // is left modified with no pending snapshot and no watchdog, which is
+        // exactly the stranded state this whole subsystem exists to prevent.
+        //
+        // Lock ordering is always coordinator -> restore, never the reverse,
+        // so there is no inversion to deadlock on.
+        mutex.withLock { restore(RestoreTrigger.CALL_ENDED) }
     }
 
     /**
@@ -151,12 +169,45 @@ class IncomingCallCoordinator @Inject constructor(
      * WorkManager watchdog survived the process death, and
      * [onCallStateChanged] will restore as soon as the call is answered or ends.
      */
-    suspend fun reconcileStaleRestore() {
+    suspend fun reconcileStaleRestore() = mutex.withLock {
+        val snapshot = restoreRepository.getPending() ?: return@withLock
+
+        // Gate 1 — is the snapshot actually *stale*?
+        //
+        // This trigger is named for recovering snapshots stranded by a process
+        // kill, and a snapshot that has not yet reached its own auto-restore
+        // deadline is not stranded: it is a live call being handled normally.
+        //
+        // This gate exists because gate 2 can lie. `getCallState()` /
+        // `callStateForSubscription` read the default subscription, which the
+        // platform itself warns may disagree with the broadcast — on a dual-SIM
+        // phone the default subscription can look idle while the *other* SIM is
+        // ringing. Missing permission and read failures also fail open to IDLE,
+        // deliberately, because never restoring is the worse failure.
+        //
+        // So the expiry check carries the safety, not the state read: during a
+        // live call the snapshot is by definition younger than its own deadline,
+        // no matter what telephony claims. Waiting costs nothing — the watchdog
+        // survived the process death, and OFFHOOK/IDLE from the receiver will
+        // restore as soon as the call is genuinely over.
+        val now = clock.nowEpochMs()
+        if (now < snapshot.expiresAtEpochMs) {
+            Timber.i(
+                "Deferring cold-start restore: snapshot is %dms from its deadline",
+                snapshot.expiresAtEpochMs - now,
+            )
+            return@withLock
+        }
+
+        // Gate 2 — belt and braces. Cheap, and catches the ordinary case where
+        // telephony *is* reporting accurately.
         val state = telephony.currentCallState()
         if (state != CallState.IDLE) {
             Timber.i("Deferring cold-start restore: call state is %s", state)
-            return
+            return@withLock
         }
+
         restore(RestoreTrigger.COLD_START_RECONCILIATION)
+        Unit
     }
 }

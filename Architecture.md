@@ -566,6 +566,36 @@ actually over.
 would suppress precisely the restore that matters most. `RestoreAudioAndDnd` is
 idempotent and cheap when nothing is pending, so it is simply always called.
 
+**Apply and restore share one lock.** `RestoreAudioAndDnd` has its own mutex, but
+that only serialises restores against each other — it does nothing to stop a
+restore interleaving with an *apply*. The failure that allows: the user answers
+fast, so `OFFHOOK` arrives while the `RINGING` apply is still inside its
+`goAsync` window; restore reads the snapshot, puts the device back, clears the
+row and cancels the watchdog, all while apply is still raising the volume. The
+device ends up modified with no pending snapshot and no watchdog — the stranded
+state this subsystem exists to prevent, reached by the machinery meant to
+prevent it. All three entry points therefore take the coordinator's mutex, and
+lock ordering is always coordinator → restore.
+
+**Cold-start reconciliation trusts the snapshot's own deadline, not telephony.**
+`currentCallState()` fails open to `IDLE` — on a missing permission, on a read
+error, and inherently on dual-SIM hardware, where `getCallState()` /
+`callStateForSubscription` read the *default subscription* and can report idle
+while the other SIM is ringing. Failing open is the right default (never
+restoring is the worse failure), but it means the call-state check alone cannot
+protect a live call. So reconciliation additionally requires the pending
+snapshot to be **past its own `expiresAtEpochMs`**. During a live call the
+snapshot is by definition younger than its deadline, whatever telephony claims.
+This matches the trigger's actual purpose: it recovers *stale* snapshots, and a
+snapshot that has not reached its own auto-restore deadline is not stale — it
+belongs to a call still being handled.
+
+**Call state is consumed with `collect`, never `collectLatest`.** `collectLatest`
+cancels the previous collector body when a new value arrives, and here that body
+is a restore: a `RINGING → OFFHOOK → IDLE` sequence could cancel one part-way,
+after the ringer was put back but before the DND filter, leaving the device
+half-restored with its snapshot already cleared.
+
 Running restore three times is harmless; running it zero times is the only
 unacceptable outcome. `CallSnapshot` remains the in-memory domain model of §3 —
 this adds durable backing, it does not replace the type.
