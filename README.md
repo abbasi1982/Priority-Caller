@@ -41,21 +41,26 @@ checked in at `app/schemas/…/1.json`.
 
 **Not verified — and this is the part that matters:**
 
-- **No instrumented run.** `connectedAndroidTest` has never executed. Every
-  androidTest source — the five DAO tests and `MigrationTest` — is unrun, and a
-  JVM test passing says nothing about them.
+- **No instrumented run.** `connectedAndroidTest` has never executed, and
+  androidTest sources have never even been *compiled* — neither
+  `testDebugUnitTest` nor `assembleDebug` builds them. Seven classes are in that
+  state: five DAO tests, `MigrationTest`, and `PlatformNumberMatchTest`. A green
+  JVM run says nothing about any of them.
 - **No device matrix.** The behaviour this app exists for — Vibrate, Silent, DND
   on and off, a long answered call, and killing the process mid-ring — has not
   been exercised on real hardware, or an emulator. Those are the cases where the
   restore subsystem either holds or leaves a phone stranded off DND at raised
   volume, and no unit test can settle them.
-- **Two planned tests were never written**, so there is nothing to run:
-  - Compose UI tests.
-  - An instrumented test for `PhoneNumberUtils.compare`, required by
-    `ImplementationPlan.md` § Phase 2. `AndroidTelephonyPort` calls it as an
-    additional accept on top of `PhoneNumberNormalizer`, and it is the one
-    matching path with no coverage of any kind — the JVM tests cover the
-    normalizer, which is the layer that does *not* call it.
+- **No Compose UI tests.** Planned, never written, so there is nothing to run.
+- **`PhoneNumberUtils.compare` is written but unrun.**
+  `PlatformNumberMatchTest` covers it (`ImplementationPlan.md` § Phase 2) and
+  must run on the device session alongside the matrix. `AndroidTelephonyPort`
+  calls `compare` as an additional accept on top of `PhoneNumberNormalizer`, so
+  it can only *add* matches — which means the risk it carries is a false
+  positive, making the **wrong** caller loud in DND, not a missed call. The test
+  is asymmetric for that reason: must-not-match pairs are asserted against the
+  platform call and the composed predicate separately, must-match pairs only
+  against the composed predicate.
 - **Lock ordering is reasoned, not executed.** Restore always takes the
   coordinator mutex before the restore mutex, never the reverse. That is an
   argument from reading the code; a deadlock under a real fast-answer is exactly
