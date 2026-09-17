@@ -97,14 +97,110 @@ class EscalationPolicyTest {
 
     @Test
     fun `when both windows are satisfied the primary window is reported as the trigger`() {
-        // 3 calls inside 5 minutes satisfies 2-in-5 and 3-in-10 simultaneously.
-        val decision = policy.evaluate(listOf(minutesAgo(1), minutesAgo(2)), now, defaults)
+        // 2 calls inside 5 minutes and 3 inside 10 satisfies 2-in-5 and 3-in-10
+        // at once, while staying *below* the alarm tier's 3-in-5.
+        //
+        // This used to use three calls inside five minutes, which is now
+        // exactly the alarm threshold — the assertion was quietly testing a
+        // different tier than its name claims. The point here is the
+        // primary-over-secondary precedence, so the input has to isolate it.
+        val decision = policy.evaluate(listOf(minutesAgo(1), minutesAgo(7)), now, defaults)
 
         assertEquals(
             "the tighter window is the more specific explanation and is what the audit " +
                 "log should name",
             EscalationDecision.Trigger.PRIMARY_WINDOW,
             decision.trigger,
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // The alarm rung
+    //
+    // The distinction the whole app is for: "someone is calling" versus
+    // "someone is trying really hard to reach me".
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `three calls inside five minutes reaches the alarm level`() {
+        val decision = policy.evaluate(listOf(minutesAgo(1), minutesAgo(2)), now, defaults)
+
+        assertEquals(EscalationDecision.Level.ALARM, decision.level)
+        assertEquals(EscalationDecision.Trigger.ALARM_WINDOW, decision.trigger)
+    }
+
+    @Test
+    fun `two calls inside five minutes stops at the raise level`() {
+        val decision = policy.evaluate(listOf(minutesAgo(1)), now, defaults)
+
+        assertEquals(
+            "one call short of the alarm threshold must not sound the alarm",
+            EscalationDecision.Level.RAISE,
+            decision.level,
+        )
+    }
+
+    /**
+     * The precedence that makes the ladder a ladder.
+     *
+     * Any input satisfying the alarm tier also satisfies the primary one, so if
+     * primary were checked first the alarm tier would be unreachable — which is
+     * exactly the trap the original `primary else secondary` ordering laid for
+     * the secondary tier.
+     */
+    @Test
+    fun `the alarm tier outranks the primary tier when both are satisfied`() {
+        val decision = policy.evaluate(listOf(minutesAgo(1), minutesAgo(2)), now, defaults)
+
+        assertEquals(EscalationDecision.Trigger.ALARM_WINDOW, decision.trigger)
+    }
+
+    @Test
+    fun `the alarm tier respects its own window, not the primary one`() {
+        val wideAlarmWindow = defaults.copy(alarmCallCount = 3, alarmWindowMinutes = 30)
+
+        // Three calls spread over 20 minutes: outside the 5-minute primary
+        // window entirely, but inside the alarm tier's own 30-minute one.
+        val decision = policy.evaluate(
+            listOf(minutesAgo(12), minutesAgo(20)),
+            now,
+            wideAlarmWindow,
+        )
+
+        assertEquals(EscalationDecision.Trigger.ALARM_WINDOW, decision.trigger)
+        assertEquals(3, decision.countInAlarmWindow)
+    }
+
+    @Test
+    fun `escalation disabled suppresses the alarm tier too`() {
+        val decision = policy.evaluate(
+            listOf(minutesAgo(1), minutesAgo(2)),
+            now,
+            defaults.copy(enabled = false),
+        )
+
+        assertEquals(EscalationDecision.Level.NONE, decision.level)
+    }
+
+    /**
+     * The silent-never-fires trap.
+     *
+     * `pruneBeforeMs` decides both which timestamps are fetched and which are
+     * deleted. A window missing from its `max` would have its own history
+     * pruned away on every call, and that tier would never fire — with no
+     * error and nothing in the audit log to explain it.
+     */
+    @Test
+    fun `pruneBeforeMs uses the alarm window when that is the widest`() {
+        val wideAlarmWindow = defaults.copy(
+            primaryWindowMinutes = 5,
+            secondaryWindowMinutes = 10,
+            alarmWindowMinutes = 45,
+        )
+
+        assertEquals(
+            now - 45 * 60_000L,
+            policy.pruneBeforeMs(now, wideAlarmWindow),
         )
     }
 

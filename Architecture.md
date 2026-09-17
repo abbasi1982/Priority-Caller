@@ -105,10 +105,12 @@ Keep domain models independent of Room annotations.
 | Field | Default | Notes |
 |-------|---------|--------|
 | ringtoneVolumePercent | 80 | 0–100 of `STREAM_RING` max |
-| escalateAfterCalls | 2 | Window A count |
-| escalateWindowMinutes | 5 | Window A |
-| escalateAltAfterCalls | 3 | Window B |
-| escalateAltWindowMinutes | 10 | Window B |
+| escalation.primaryCallCount | 2 | Rule A count (was documented as `escalateAfterCalls`) |
+| escalation.primaryWindowMinutes | 5 | Rule A window |
+| escalation.secondaryCallCount | 3 | Rule B count (was `escalateAltAfterCalls`) |
+| escalation.secondaryWindowMinutes | 10 | Rule B window |
+| escalation.alarmCallCount | 3 | Rule C — the alarm rung. Must exceed the primary count |
+| escalation.alarmWindowMinutes | 5 | Rule C window |
 | autoRestoreTimeoutSeconds | 90 | Safety restore if call-end missed |
 | loggingEnabled | true | If false, still persist **errors** (reviewer recommendation) |
 
@@ -292,16 +294,33 @@ If, after DND + ringer + volume have been attempted and verified, the phone is s
 
 Store recent **matched** call timestamps per normalized number (Room table `escalation_events` or in-memory + DataStore; Room is better across process death).
 
-Escalate if:
+Escalation is a **ladder**, not a flag. The distinction it encodes is between
+"someone is calling" and "someone is trying really hard to reach me".
 
-- count ≥ `escalateAfterCalls` in `escalateWindowMinutes`, **OR**
-- count ≥ `escalateAltAfterCalls` in `escalateAltWindowMinutes`
+`EscalationDecision.Level`, evaluated **strongest first**:
+
+| Level | Fires when | Response |
+|---|---|---|
+| `RAISE` | count ≥ `primaryCallCount` in `primaryWindowMinutes`, **OR** ≥ `secondaryCallCount` in `secondaryWindowMinutes` | max `STREAM_RING` + full-screen alert |
+| `ALARM` | count ≥ `alarmCallCount` in `alarmWindowMinutes` | the above, **plus** the ringtone on `USAGE_ALARM` |
+
+**The ordering is load-bearing.** Any input satisfying the alarm tier also
+satisfies the primary one, so checking primary first would make the alarm tier
+unreachable — the same trap the original `primary else secondary` ordering laid
+for the secondary tier, which is why that tier fires only when primary did
+*not* and could not be reused as rung three.
+
+`pruneBeforeMs` must take the `max` of **all three** windows. It decides both
+which timestamps are fetched and which are deleted, so a window missing from it
+has its own history pruned away on every call and that tier silently never
+fires.
 
 Actions:
 
 1. Set `STREAM_RING` to **max** (still respect `isVolumeFixed()`).
 2. Post a high-priority notification with `setFullScreenIntent` to `PriorityAlertActivity` (`showWhenLocked`, `turnScreenOn`, `excludeFromRecents`).
 3. Request `POST_NOTIFICATIONS` (API 33+) and `USE_FULL_SCREEN_INTENT`; on API 34+ deep-link to full-screen notification settings if denied.
+4. At `ALARM` only: start `RingtonePlayerPort.startAlarmStreamAlert()` **even when the ringer is working**. This is the one place the app deliberately plays a second sound over a functioning ringtone — being jarring is the signal at that tier. The guard in `ApplyPriorityRingUseCase.stillInaudible()` exists to prevent that overlap *by accident*; this is the sanctioned exception, and the two conditions are independent. The alarm stream is still not a guarantee: Total Silence and an alarms-disallowed DND policy both mute it (§ 6).
 
 The alert UI is **informational** (“Priority call from X”). It **must not** try to answer/reject the cellular call via hidden telephony APIs. Optional: `tel:` / open default dialer is unnecessary during ringing.
 

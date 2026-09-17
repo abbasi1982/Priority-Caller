@@ -110,6 +110,59 @@ class AppSettingsTest {
     // Escalation thresholds
     // -----------------------------------------------------------------------
 
+    /**
+     * The invariant that keeps the ladder a ladder.
+     *
+     * The alarm tier is evaluated first, so anything that satisfies it also
+     * satisfies the tier below. Set it at or under that tier and the quieter
+     * response becomes unreachable — the user would have configured a rung they
+     * can never land on.
+     */
+    @Test
+    fun `an alarm call count at or below the primary one is raised above it`() {
+        val validated = AppSettings(
+            escalation = EscalationThresholds(primaryCallCount = 4, alarmCallCount = 4),
+        ).validated()
+
+        assertEquals(5, validated.escalation.alarmCallCount)
+    }
+
+    @Test
+    fun `an alarm call count below the primary one is raised above it`() {
+        val validated = AppSettings(
+            escalation = EscalationThresholds(primaryCallCount = 6, alarmCallCount = 2),
+        ).validated()
+
+        assertEquals(7, validated.escalation.alarmCallCount)
+    }
+
+    @Test
+    fun `an alarm call count comfortably above the primary one is left alone`() {
+        val validated = AppSettings(
+            escalation = EscalationThresholds(primaryCallCount = 2, alarmCallCount = 5),
+        ).validated()
+
+        assertEquals(5, validated.escalation.alarmCallCount)
+    }
+
+    @Test
+    fun `an alarm window below one minute is raised`() {
+        val validated = AppSettings(
+            escalation = EscalationThresholds(alarmWindowMinutes = 0),
+        ).validated()
+
+        assertEquals(1, validated.escalation.alarmWindowMinutes)
+    }
+
+    @Test
+    fun `an alarm window above sixty minutes is clamped down`() {
+        val validated = AppSettings(
+            escalation = EscalationThresholds(alarmWindowMinutes = 900),
+        ).validated()
+
+        assertEquals(60, validated.escalation.alarmWindowMinutes)
+    }
+
     @Test
     fun `a primary call count below two is raised, because one call can never be a repeat call`() {
         val validated = AppSettings(

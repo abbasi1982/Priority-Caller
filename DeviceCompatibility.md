@@ -332,6 +332,18 @@ policy-category check would say audible.
 either. That ordering is now load-bearing on real hardware, not merely tidy —
 do not reorder it.
 
+### Full instrumented suite on the spare, 2026-09-17
+
+All 69 instrumented tests pass on the motorola one action, including the Room
+migrations through **version 3** (the escalation alarm tier) validated against
+the committed schema JSON on real SQLite.
+
+Caveat, because it is the trap this file already documents: several of these
+`assumeTrue` on Do Not Disturb access and a skip prints as a pass. Only
+`AlarmStreamIndependenceTest` and `AndroidRingtonePlayerPortTest` were
+separately confirmed skip-free with `am instrument -r`. `MigrationTest` and the
+DAO tests have no such gate, so the migration result needs no caveat.
+
 ### The alert has now made a sound on a real phone — same spare, 2026-09-17
 
 `AndroidRingtonePlayerPortTest`, 5 tests, all executed and passed (verified via

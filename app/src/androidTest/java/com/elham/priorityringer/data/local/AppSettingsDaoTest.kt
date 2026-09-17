@@ -87,18 +87,22 @@ class AppSettingsDaoTest {
                 primaryWindowMinutes = 7,
                 secondaryCallCount = 6,
                 secondaryWindowMinutes = 21,
+                alarmCallCount = 8,
+                alarmWindowMinutes = 9,
             ),
         )
 
         val stored = dao.get()
 
         assertEquals(
-            listOf(4, 7, 6, 21),
+            listOf(4, 7, 6, 21, 8, 9),
             listOf(
                 stored?.escalationPrimaryCallCount,
                 stored?.escalationPrimaryWindowMinutes,
                 stored?.escalationSecondaryCallCount,
                 stored?.escalationSecondaryWindowMinutes,
+                stored?.escalationAlarmCallCount,
+                stored?.escalationAlarmWindowMinutes,
             ),
         )
     }

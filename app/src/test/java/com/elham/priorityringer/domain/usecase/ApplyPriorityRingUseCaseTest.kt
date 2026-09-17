@@ -440,6 +440,84 @@ class ApplyPriorityRingUseCaseTest {
     // Escalation (FR5)
     // -----------------------------------------------------------------------
 
+    /**
+     * The third rung, and the whole point of it.
+     *
+     * A phone on Vibrate whose ringer the app successfully raised is already
+     * audible — `stillInaudible()` is false — so the fallback would never fire.
+     * At the alarm tier it fires anyway, deliberately, because being *jarring*
+     * is the signal: three calls in five minutes is someone trying hard, and
+     * they should not get the same sound as the first call.
+     */
+    @Test
+    fun `the alarm tier sounds the alarm stream even though the ringer worked`() = runTest {
+        givenSuppressedPhone()
+        givenTwoRecentCalls()
+
+        val result = useCase(contact, settings)
+
+        assertEquals(
+            "the ringer succeeded, so this is not the inaudible fallback",
+            RingerMode.NORMAL,
+            audio.ringerMode,
+        )
+        assertTrue(result.alarmAlert?.isSuccess == true)
+        assertEquals(1, ringtonePlayer.startCount)
+    }
+
+    /** One rung down must stay quiet, or the ladder has only one step. */
+    @Test
+    fun `the raise tier does not sound the alarm stream on a working ringer`() = runTest {
+        givenSuppressedPhone()
+        escalationRepository.seed(contact.matchKey, clock.now - 60_000L)
+
+        val result = useCase(contact, settings)
+
+        assertEquals(
+            "two calls is the raise tier; a second ringtone here would play over " +
+                "a ringer that is already working",
+            null,
+            result.alarmAlert,
+        )
+        assertEquals(0, ringtonePlayer.startCount)
+    }
+
+    @Test
+    fun `the alarm tier is reported as escalation, not as a failed ringer`() = runTest {
+        givenSuppressedPhone()
+        givenTwoRecentCalls()
+
+        useCase(contact, settings)
+
+        val started = audit.entries.single {
+            it.type == AuditEventType.ALARM_STREAM_ALERT_STARTED
+        }
+        assertTrue(
+            "saying the ringer could not be made audible, about a phone whose " +
+                "ringer is working, would send the user to fix nothing. Was: " +
+                started.message,
+            started.message.contains("Repeat caller"),
+        )
+    }
+
+    @Test
+    fun `a genuinely inaudible phone still reports the fallback wording`() = runTest {
+        givenSilentPhoneThatRefusesToBecomeAudible()
+
+        useCase(contact, settings)
+
+        val started = audit.entries.single {
+            it.type == AuditEventType.ALARM_STREAM_ALERT_STARTED
+        }
+        assertTrue(started.message.contains("could not be made audible"))
+    }
+
+    /** Two calls already seeded, so the call under test is the third. */
+    private fun givenTwoRecentCalls() {
+        escalationRepository.seed(contact.matchKey, clock.now - 60_000L)
+        escalationRepository.seed(contact.matchKey, clock.now - 120_000L)
+    }
+
     @Test
     fun `an escalated call targets maximum volume rather than the configured percent`() = runTest {
         givenSuppressedPhone()

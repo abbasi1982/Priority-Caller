@@ -28,6 +28,32 @@ object PriorityRingerDatabaseMigrations {
         }
     }
 
+    /**
+     * Adds the escalation alarm tier — `escalationAlarmCallCount` and
+     * `escalationAlarmWindowMinutes`.
+     *
+     * `NOT NULL DEFAULT` rather than nullable, which is the opposite choice
+     * from [MIGRATION_1_2] and for the opposite reason: there is no meaningful
+     * "never observed" state for a threshold. Every install has one, and an
+     * upgrade should simply inherit the same defaults a fresh install gets.
+     *
+     * The defaults here must match `EscalationThresholds`, and must match what
+     * Room's exported `3.json` expects — `runMigrationsAndValidate` compares
+     * the migrated schema against it and fails on a mismatch.
+     */
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE app_settings " +
+                    "ADD COLUMN escalationAlarmCallCount INTEGER NOT NULL DEFAULT 3",
+            )
+            db.execSQL(
+                "ALTER TABLE app_settings " +
+                    "ADD COLUMN escalationAlarmWindowMinutes INTEGER NOT NULL DEFAULT 5",
+            )
+        }
+    }
+
     /** Every migration, in order, for the Room builder. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 }

@@ -324,9 +324,7 @@ private fun ResultCard(apply: ApplyResult) {
         )
         LabeledValueRow(
             label = stringResource(R.string.label_escalated),
-            value = stringResource(
-                if (apply.escalation.escalate) R.string.value_yes else R.string.value_no,
-            ),
+            value = stringResource(apply.escalation.level.labelRes),
         )
         LabeledValueRow(
             label = stringResource(R.string.label_snapshot_saved),

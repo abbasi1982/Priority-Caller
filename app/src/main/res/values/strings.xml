@@ -56,6 +56,9 @@
     <string name="label_api_level">Android version</string>
     <string name="label_contact">Contact</string>
     <string name="label_escalated">Escalated</string>
+    <string name="escalation_level_none">No</string>
+    <string name="escalation_level_raise">Yes — maximum volume</string>
+    <string name="escalation_level_alarm">Yes — alarm alert</string>
     <string name="label_do_not_disturb">Do Not Disturb</string>
     <string name="label_full_screen_alert">Full-screen alert</string>
     <string name="label_snapshot_saved">Previous settings saved</string>
@@ -252,13 +255,19 @@
     <string name="settings_volume_floor">The lowest setting is %1$d%%. A priority ringer that cannot be heard would be worse than none at all.</string>
 
     <string name="settings_escalation_title">Repeat callers</string>
-    <string name="settings_escalation_body">When the same priority contact calls again quickly, the ring goes to maximum and a full-screen alert is shown. Either rule below can trigger it.</string>
+    <string name="settings_escalation_body">When the same priority contact calls again quickly, the ring goes to maximum and a full-screen alert is shown. Call again after that and your ringtone also plays as an alarm, which is harder to sleep through. Any rule below can trigger it.</string>
     <string name="settings_escalation_enabled">Escalate repeat callers</string>
     <string name="settings_escalation_window_a">Rule A — short window</string>
     <string name="settings_escalation_window_b">Rule B — longer window</string>
+    <!--
+      Deliberately says "may be heard", not "will be". The alarm stream is
+      silenced by Total Silence and by a Do Not Disturb policy that disallows
+      alarms (§ 17.3 forbids claiming otherwise).
+    -->
+    <string name="settings_escalation_window_alarm">Rule C — alarm alert</string>
     <string name="settings_escalation_calls">Calls</string>
     <string name="settings_escalation_minutes">Within (minutes)</string>
-    <string name="settings_escalation_summary">Escalates after %1$d calls in %2$d minutes, or %3$d calls in %4$d minutes.</string>
+    <string name="settings_escalation_summary">Escalates after %1$d calls in %2$d minutes, or %3$d calls in %4$d minutes. After %5$d calls in %6$d minutes your ringtone also plays as an alarm, which may be heard even in Silent.</string>
 
     <string name="settings_restore_title">Safety restore</string>
     <string name="settings_restore_body">If the end of a call is never reported, your sound settings are put back after this long anyway. This is what stops the phone being left loud and off Do Not Disturb.</string>

@@ -352,9 +352,7 @@ private fun LastAttemptCard(apply: ApplyResult) {
         )
         LabeledValueRow(
             label = stringResource(R.string.label_escalated),
-            value = stringResource(
-                if (apply.escalation.escalate) R.string.value_yes else R.string.value_no,
-            ),
+            value = stringResource(apply.escalation.level.labelRes),
         )
         OutcomeRow(stringResource(R.string.label_do_not_disturb), apply.dnd)
         OutcomeRow(stringResource(R.string.label_ringer_mode), apply.ringer)

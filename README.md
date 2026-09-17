@@ -29,7 +29,7 @@ to be clear about exactly where the line falls.
 
 **Verified** on JDK 17 with Android SDK platform 35 and build-tools 35:
 
-- `./gradlew :app:testDebugUnitTest` — 204 JVM unit tests, green. Covers the
+- `./gradlew :app:testDebugUnitTest` — 223 JVM unit tests, green. Covers the
   main Kotlin sources, the Hilt/KSP graph, resource generation, and the JVM test
   sources.
 - `./gradlew assembleDebug` — `BUILD SUCCESSFUL`, so packaging and dexing work
@@ -37,7 +37,7 @@ to be clear about exactly where the line falls.
 - `./gradlew :app:connectedDebugAndroidTest` — **57 instrumented tests, green**,
   on an API 35 emulator (`google_apis;x86_64`, Android 15, `networkCountryIso`
   = `us`). That is 44 Room tests (five DAO classes plus `MigrationTest`, which reads
-  the committed schemas and exercises the 1 → 2 migration), the 8 in
+  the committed schemas and exercises the migrations), the 8 in
   `PlatformNumberMatchTest`, and 5 in `RingerModeAndVolumeCouplingTest`.
 
 **Five of those tests skip unless you grant Do Not Disturb access first.**
@@ -70,14 +70,13 @@ actual phone.
 
 The Gradle wrapper is committed and usable, dependency versions in
 `gradle/libs.versions.toml` resolved as written, and Room's exported schema is
-checked in at `app/schemas/…/1.json` and `…/2.json`.
+checked in at `app/schemas/…/1.json`, `…/2.json` and `…/3.json`.
 
 **Not verified — and this is the part that matters:**
 
-- **Nothing has run on the phone this app is for.** The real-hardware results are
-  `AlarmStreamIndependenceTest` and `AndroidRingtonePlayerPortTest`, both passing
-  on a **spare** motorola one action (Android 11 / SDK 30) — see
-  `DeviceCompatibility.md`. That is better
+- **Nothing has run on the phone this app is for.** The whole instrumented suite
+  (69 tests) now passes on a **spare** motorola one action (Android 11 / SDK 30)
+  — see `DeviceCompatibility.md`. That is better
   evidence than an emulator and still not the target device: Motorola's skin
   sits close to AOSP, where Samsung and Xiaomi are where these audio assumptions
   most often break, and SDK 30 cannot reach the Android 15 zen-rule path the app
@@ -104,8 +103,10 @@ checked in at `app/schemas/…/1.json` and `…/2.json`.
   cannot be injected.
 - **No Compose UI tests.** Planned, never written, so there is nothing to run.
 - **`PhoneNumberUtils.compare` has not been probed on the target phone.**
-  `PlatformNumberMatchTest` passes on the emulator, which tells you the test is
-  sound, not that the phone agrees. `AndroidTelephonyPort` calls `compare` as an
+  `PlatformNumberMatchTest` passes on the emulator and on the spare Motorola,
+  which tells you the test is sound and that those two devices agree — not that
+  the target phone does. `config_phonenumber_compare_min_match` is a per-device
+  resource, so this has to be re-run wherever the app is actually installed. `AndroidTelephonyPort` calls `compare` as an
   additional accept on top of `PhoneNumberNormalizer`, so it can only *add*
   matches — which means the risk it carries is a false positive, making the
   **wrong** caller loud in DND, not a missed call. The test is asymmetric for
@@ -117,10 +118,16 @@ checked in at `app/schemas/…/1.json` and `…/2.json`.
   argument from reading the code; a deadlock under a real fast-answer is exactly
   the class of bug that reads fine.
 
-So: the tree builds, and 270 tests pass — 204 on the JVM, 57 on an emulator, and
-9 on a spare Motorola (`AlarmStreamIndependenceTest` and
-`AndroidRingtonePlayerPortTest` — the only tests that have ever run on real
-hardware, and not on the phone this is for).
+So: the tree builds, 223 JVM tests pass, and the **whole** instrumented suite —
+69 tests, including the Room migrations through version 3 — has now run green on
+a spare Motorola (Android 11). That is real hardware, and still not the phone
+this is for.
+
+One caveat on that 69: several of those tests `assumeTrue` on Do Not Disturb
+access and a skip reads as a pass, and only `AlarmStreamIndependenceTest` and
+`AndroidRingtonePlayerPortTest` were separately confirmed skip-free via
+`am instrument -r`. `MigrationTest` and the DAO tests have no such gate, so the
+migration result stands unconditionally.
 That moves it from "never built" to "unproven on a phone". **Do not sideload it onto a family member's
 phone** until the device matrix above has been run.
 

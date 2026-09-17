@@ -18,17 +18,17 @@ import com.elham.priorityringer.data.local.entity.SETTINGS_ROW_ID
 import com.elham.priorityringer.domain.model.AppSettings
 
 /**
- * Architecture.md § 10 — version 2, schema exported to `app/schemas/`.
+ * Architecture.md § 10 — version 3, schema exported to `app/schemas/`.
  *
- * Version 2 adds `app_settings.lastAudibleRingIndex`; see
- * [PriorityRingerDatabaseMigrations.MIGRATION_1_2].
+ * Version 2 adds `app_settings.lastAudibleRingIndex`; version 3 adds the
+ * escalation alarm tier. See [PriorityRingerDatabaseMigrations].
  *
  * `exportSchema = true` is not optional here: the androidTest source set adds
  * `app/schemas` as an assets directory precisely so migration tests can read
  * the committed JSON. Turning it off would silently disable those tests.
  */
 @Database(
-    version = 2,
+    version = 3,
     exportSchema = true,
     entities = [
         PriorityContactEntity::class,
@@ -79,10 +79,12 @@ class SettingsPrepopulateCallback : RoomDatabase.Callback() {
                 escalationPrimaryWindowMinutes,
                 escalationSecondaryCallCount,
                 escalationSecondaryWindowMinutes,
+                escalationAlarmCallCount,
+                escalationAlarmWindowMinutes,
                 autoRestoreTimeoutSeconds,
                 loggingEnabled,
                 dndBypassStrategy
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
             arrayOf<Any>(
                 SETTINGS_ROW_ID,
@@ -92,6 +94,8 @@ class SettingsPrepopulateCallback : RoomDatabase.Callback() {
                 defaults.escalation.primaryWindowMinutes,
                 defaults.escalation.secondaryCallCount,
                 defaults.escalation.secondaryWindowMinutes,
+                defaults.escalation.alarmCallCount,
+                defaults.escalation.alarmWindowMinutes,
                 defaults.autoRestoreTimeoutSeconds,
                 if (defaults.loggingEnabled) 1 else 0,
                 defaults.dndBypassStrategy.name,

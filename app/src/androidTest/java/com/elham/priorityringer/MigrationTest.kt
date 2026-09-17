@@ -91,6 +91,81 @@ class MigrationTest {
     }
 
     @Test
+    fun `the_version_3_schema_is_exported_and_can_be_created_from_it`() {
+        val database = helper.createDatabase(TEST_DB, 3)
+
+        assertTrue(database.isOpen)
+        database.close()
+    }
+
+    @Test
+    fun `contacts_written_at_version_1_survive_both_migrations`() {
+        helper.createDatabase(TEST_DB, 1).apply {
+            execSQL(
+                "INSERT INTO priority_contacts " +
+                    "(displayName, originalInput, matchKey, e164, enabled, createdAtEpochMs) " +
+                    "VALUES ('Mum', '+15551234567', '1234567', '+15551234567', 1, 0)",
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DB,
+            3,
+            true,
+            *PriorityRingerDatabaseMigrations.ALL,
+        )
+
+        migrated.query("SELECT displayName FROM priority_contacts").use { cursor ->
+            assertTrue(
+                "an install that skips a version must still keep the user's contacts",
+                cursor.moveToFirst(),
+            )
+            assertEquals("Mum", cursor.getString(0))
+        }
+        migrated.close()
+    }
+
+    /**
+     * The opposite choice from `lastAudibleRingIndex`, deliberately.
+     *
+     * A threshold has no meaningful "never observed" state, so an upgraded
+     * install should simply inherit the same defaults a fresh one gets. If
+     * these came through as 0 the alarm tier would fire on the very first
+     * call — every priority call would sound an alarm.
+     */
+    @Test
+    fun `the_alarm_tier_columns_get_their_defaults_on_an_upgraded_install`() {
+        helper.createDatabase(TEST_DB, 2).apply {
+            execSQL(
+                "INSERT INTO app_settings (id, ringtoneVolumePercent, escalationEnabled, " +
+                    "escalationPrimaryCallCount, escalationPrimaryWindowMinutes, " +
+                    "escalationSecondaryCallCount, escalationSecondaryWindowMinutes, " +
+                    "autoRestoreTimeoutSeconds, loggingEnabled, dndBypassStrategy) " +
+                    "VALUES (1, 80, 1, 2, 5, 3, 10, 90, 1, 'PRIORITY_ALLOW_CALLS')",
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DB,
+            3,
+            true,
+            PriorityRingerDatabaseMigrations.MIGRATION_2_3,
+        )
+
+        migrated.query(
+            "SELECT escalationAlarmCallCount, escalationAlarmWindowMinutes " +
+                "FROM app_settings WHERE id = 1",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(3, cursor.getInt(0))
+            assertEquals(5, cursor.getInt(1))
+        }
+        migrated.close()
+    }
+
+    @Test
     fun `the_new_column_starts_null_meaning_never_observed`() {
         helper.createDatabase(TEST_DB, 1).apply {
             execSQL(

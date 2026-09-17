@@ -2,6 +2,7 @@ package com.elham.priorityringer.presentation.common
 
 import androidx.annotation.StringRes
 import com.elham.priorityringer.R
+import com.elham.priorityringer.domain.escalation.EscalationDecision
 import com.elham.priorityringer.domain.model.AuditEventType
 import com.elham.priorityringer.domain.model.Capability
 import com.elham.priorityringer.domain.model.CapabilityStatus
@@ -114,6 +115,20 @@ val FailureReason.labelRes: Int
     }
 
 @get:StringRes
+/**
+ * Which rung of the ladder fired.
+ *
+ * Shown instead of a yes/no, because yes/no renders the second and third tiers
+ * identically — and telling those apart is the entire reason the third one
+ * exists.
+ */
+val EscalationDecision.Level.labelRes: Int
+    get() = when (this) {
+        EscalationDecision.Level.NONE -> R.string.escalation_level_none
+        EscalationDecision.Level.RAISE -> R.string.escalation_level_raise
+        EscalationDecision.Level.ALARM -> R.string.escalation_level_alarm
+    }
+
 val AuditEventType.labelRes: Int
     get() = when (this) {
         AuditEventType.PRIORITY_CALL_DETECTED -> R.string.audit_type_priority_call_detected

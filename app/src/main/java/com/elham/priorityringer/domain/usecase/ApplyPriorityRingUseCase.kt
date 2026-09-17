@@ -150,9 +150,13 @@ class ApplyPriorityRingUseCase @Inject constructor(
         val targetPercent = if (escalation.escalate) 100 else settings.ringtoneVolumePercent
         val volumeOutcome = applyVolume(targetPercent, escalation.escalate)
 
-        // ---- 5b. Alarm-stream fallback, only if still inaudible ------------
-        val alarmAlertOutcome = if (stillInaudible(dndOutcome)) {
-            playAlarmStreamAlert(contact)
+        // ---- 5b. Alarm stream: fallback, or the top escalation rung --------
+        //
+        // Two independent reasons, and the audit must say which.
+        val escalatedToAlarm = escalation.level == EscalationDecision.Level.ALARM
+        val inaudible = stillInaudible(dndOutcome)
+        val alarmAlertOutcome = if (inaudible || escalatedToAlarm) {
+            playAlarmStreamAlert(contact, escalatedToAlarm = escalatedToAlarm && !inaudible)
         } else {
             null
         }
@@ -184,6 +188,12 @@ class ApplyPriorityRingUseCase @Inject constructor(
 
     /**
      * Is the phone *still* not going to ring, after everything above?
+     *
+     * **This is not the only reason the alarm stream plays any more.** The top
+     * escalation rung plays it deliberately, over a ringer that is working —
+     * see step 5b. Do not "simplify" the two conditions into one: this one
+     * answers "did we fail?", the other answers "is this urgent enough to be
+     * jarring?", and they are independent.
      *
      * This is a **re-read**, not an inspection of the outcomes, and the
      * distinction is the whole correctness of the feature. Neither outcome can
@@ -232,6 +242,7 @@ class ApplyPriorityRingUseCase @Inject constructor(
      */
     private suspend fun playAlarmStreamAlert(
         contact: PriorityContact,
+        escalatedToAlarm: Boolean,
     ): Outcome<RingtonePlayerPort.AlertDelivery> {
         val audibility = ringtonePlayer.alarmAudibility()
 
@@ -260,13 +271,21 @@ class ApplyPriorityRingUseCase @Inject constructor(
             when (outcome) {
                 is Outcome.Success -> audit.log(
                     type = AuditEventType.ALARM_STREAM_ALERT_STARTED,
-                    message = "The ringer could not be made audible, so your ringtone " +
-                        "is playing as an alarm instead" +
-                        if (outcome.value == RingtonePlayerPort.AlertDelivery.IN_PROCESS) {
-                            " (it may stop early if the system closes the app)."
-                        } else {
-                            "."
-                        },
+                    // Two reasons, two sentences. Saying "the ringer could not
+                    // be made audible" about a phone whose ringer is working
+                    // perfectly would send the user to fix something that is
+                    // not broken.
+                    message = if (escalatedToAlarm) {
+                        "Repeat caller: your ringtone is also playing as an alarm, " +
+                            "which is louder and harder to miss than a normal ring"
+                    } else {
+                        "The ringer could not be made audible, so your ringtone " +
+                            "is playing as an alarm instead"
+                    } + if (outcome.value == RingtonePlayerPort.AlertDelivery.IN_PROCESS) {
+                        " (it may stop early if the system closes the app)."
+                    } else {
+                        "."
+                    },
                     relatedContactId = contact.id,
                 )
 
@@ -333,11 +352,24 @@ class ApplyPriorityRingUseCase @Inject constructor(
         escalationRepository.pruneBefore(since)
 
         if (decision.escalate) {
+            // Report the window that actually fired, not always the primary
+            // one. The old message hardcoded the primary count and window
+            // whichever trigger produced the decision, so a SECONDARY_WINDOW
+            // escalation quoted numbers that had nothing to do with it — a
+            // small lie, in the log the user is told to trust.
+            val (count, windowMinutes) =
+                escalationPolicy.reportedCountAndWindow(decision, settings.escalation)
+
             audit.log(
                 type = AuditEventType.ESCALATION_TRIGGERED,
-                message = "Repeat caller: ${decision.countInPrimaryWindow} calls in " +
-                    "${settings.escalation.primaryWindowMinutes} min " +
-                    "(${decision.trigger}). Raising to maximum volume.",
+                message = "Repeat caller: $count calls in $windowMinutes min " +
+                    "(${decision.trigger}). " +
+                    when (decision.level) {
+                        EscalationDecision.Level.ALARM ->
+                            "Raising to maximum volume and sounding the alarm alert."
+
+                        else -> "Raising to maximum volume."
+                    },
                 relatedContactId = contact.id,
             )
         }

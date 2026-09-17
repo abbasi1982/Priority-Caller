@@ -56,9 +56,14 @@ private object Ranges {
         AppSettings.MIN_RESTORE_TIMEOUT_SECONDS..AppSettings.MAX_RESTORE_TIMEOUT_SECONDS
     const val RESTORE_STEP = 30
 
-    val CALL_COUNT = 2..10
-    val PRIMARY_WINDOW_MINUTES = 1..60
-    val SECONDARY_WINDOW_MINUTES = 1..120
+    // Taken from the domain, not restated. These used to be literals here as
+    // well as in AppSettings.validated(), which is two sources of truth for one
+    // rule: the stepper would happily offer a value the domain then silently
+    // clamped on save.
+    val CALL_COUNT = AppSettings.CALL_COUNT_RANGE
+    val PRIMARY_WINDOW_MINUTES = AppSettings.PRIMARY_WINDOW_MINUTES_RANGE
+    val SECONDARY_WINDOW_MINUTES = AppSettings.SECONDARY_WINDOW_MINUTES_RANGE
+    val ALARM_WINDOW_MINUTES = AppSettings.ALARM_WINDOW_MINUTES_RANGE
 }
 
 @Composable
@@ -188,6 +193,37 @@ private fun SettingsContent(
                     },
                 )
 
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    stringResource(R.string.settings_escalation_window_alarm),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                StepperRow(
+                    label = stringResource(R.string.settings_escalation_calls),
+                    value = settings.escalation.alarmCallCount,
+                    // Never offer a value at or below the tier beneath it:
+                    // `validated()` would clamp it up on save, and a stepper
+                    // that silently disagrees with what gets stored is worse
+                    // than one that simply cannot reach the bad value.
+                    range = (settings.escalation.primaryCallCount + 1)..
+                        (Ranges.CALL_COUNT.last + 1),
+                    onValueChange = { v ->
+                        onEditAndCommit {
+                            it.copy(escalation = it.escalation.copy(alarmCallCount = v))
+                        }
+                    },
+                )
+                StepperRow(
+                    label = stringResource(R.string.settings_escalation_minutes),
+                    value = settings.escalation.alarmWindowMinutes,
+                    range = Ranges.ALARM_WINDOW_MINUTES,
+                    onValueChange = { v ->
+                        onEditAndCommit {
+                            it.copy(escalation = it.escalation.copy(alarmWindowMinutes = v))
+                        }
+                    },
+                )
+
                 Text(
                     stringResource(
                         R.string.settings_escalation_summary,
@@ -195,6 +231,8 @@ private fun SettingsContent(
                         settings.escalation.primaryWindowMinutes,
                         settings.escalation.secondaryCallCount,
                         settings.escalation.secondaryWindowMinutes,
+                        settings.escalation.alarmCallCount,
+                        settings.escalation.alarmWindowMinutes,
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

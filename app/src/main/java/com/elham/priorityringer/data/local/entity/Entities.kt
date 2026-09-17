@@ -1,5 +1,6 @@
 package com.elham.priorityringer.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -95,6 +96,19 @@ data class AppSettingsEntity(
     val escalationPrimaryWindowMinutes: Int,
     val escalationSecondaryCallCount: Int,
     val escalationSecondaryWindowMinutes: Int,
+    /**
+     * Declared defaults, so the exported schema and `MIGRATION_2_3`'s
+     * `ALTER TABLE ... DEFAULT` agree by construction rather than by luck.
+     * Room's `runMigrationsAndValidate` compares the migrated table against the
+     * schema JSON, and a column whose default exists in one and not the other
+     * is the classic way to discover a migration is wrong only on a user's
+     * device.
+     */
+    @ColumnInfo(defaultValue = "3")
+    val escalationAlarmCallCount: Int,
+
+    @ColumnInfo(defaultValue = "5")
+    val escalationAlarmWindowMinutes: Int,
     val autoRestoreTimeoutSeconds: Int,
     val loggingEnabled: Boolean,
     val dndBypassStrategy: DndBypassStrategy,

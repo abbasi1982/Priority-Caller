@@ -248,6 +248,18 @@ data class EscalationThresholds(
     val primaryWindowMinutes: Int = 5,
     val secondaryCallCount: Int = 3,
     val secondaryWindowMinutes: Int = 10,
+
+    /**
+     * The alarm rung: how many calls in [alarmWindowMinutes] before the app
+     * stops relying on the ringer alone and plays the ringtone on the alarm
+     * stream as well.
+     *
+     * Must exceed [primaryCallCount], enforced in [AppSettings.validated] — a
+     * threshold at or below the tier beneath it would make that tier
+     * unreachable, since anything satisfying it satisfies the other first.
+     */
+    val alarmCallCount: Int = 3,
+    val alarmWindowMinutes: Int = 5,
 )
 
 /**
@@ -276,10 +288,23 @@ data class AppSettings(
         autoRestoreTimeoutSeconds = autoRestoreTimeoutSeconds
             .coerceIn(MIN_RESTORE_TIMEOUT_SECONDS, MAX_RESTORE_TIMEOUT_SECONDS),
         escalation = escalation.copy(
-            primaryCallCount = escalation.primaryCallCount.coerceIn(2, 10),
-            primaryWindowMinutes = escalation.primaryWindowMinutes.coerceIn(1, 60),
-            secondaryCallCount = escalation.secondaryCallCount.coerceIn(2, 10),
-            secondaryWindowMinutes = escalation.secondaryWindowMinutes.coerceIn(1, 120),
+            primaryCallCount = escalation.primaryCallCount.coerceIn(CALL_COUNT_RANGE),
+            primaryWindowMinutes = escalation.primaryWindowMinutes
+                .coerceIn(PRIMARY_WINDOW_MINUTES_RANGE),
+            secondaryCallCount = escalation.secondaryCallCount.coerceIn(CALL_COUNT_RANGE),
+            secondaryWindowMinutes = escalation.secondaryWindowMinutes
+                .coerceIn(SECONDARY_WINDOW_MINUTES_RANGE),
+            alarmCallCount = escalation.alarmCallCount
+                .coerceIn(CALL_COUNT_RANGE)
+                // Strictly above the tier below it. Equal or lower makes the
+                // primary tier unreachable: every input that satisfies it
+                // satisfies the alarm tier too, and the alarm tier is checked
+                // first. The user would then never get the quieter response
+                // they configured.
+                .coerceAtLeast(escalation.primaryCallCount.coerceIn(CALL_COUNT_RANGE) + 1)
+                .coerceAtMost(CALL_COUNT_RANGE.last + 1),
+            alarmWindowMinutes = escalation.alarmWindowMinutes
+                .coerceIn(ALARM_WINDOW_MINUTES_RANGE),
         ),
     )
 
@@ -292,6 +317,20 @@ data class AppSettings(
         const val MIN_VOLUME_PERCENT = 10
         const val MIN_RESTORE_TIMEOUT_SECONDS = 30
         const val MAX_RESTORE_TIMEOUT_SECONDS = 600
+
+        /**
+         * The escalation bounds, named rather than written as literals in two
+         * places.
+         *
+         * The Settings screen needs the same ranges to bound its steppers, and
+         * it used to carry its own copy of these numbers. Two independent sets
+         * of literals for one rule is a drift waiting to happen — the UI would
+         * let the user pick a value the domain then silently clamped.
+         */
+        val CALL_COUNT_RANGE = 2..10
+        val PRIMARY_WINDOW_MINUTES_RANGE = 1..60
+        val SECONDARY_WINDOW_MINUTES_RANGE = 1..120
+        val ALARM_WINDOW_MINUTES_RANGE = 1..60
     }
 }
 
