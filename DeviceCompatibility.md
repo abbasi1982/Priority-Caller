@@ -272,11 +272,65 @@ that device; do not copy emulator behaviour.
 
 | ID | What it asks | How | Outcome on the target phone |
 |---|---|---|---|
-| **P1** | Is `STREAM_ALARM` independent of ringer mode? Writing alarm index 0 must not move the ringer (the ring stream *does* couple index 0 to Vibrate). | `AlarmStreamIndependenceTest` (`adb shell cmd notification allow_dnd com.elham.priorityringer` first), plus a real Silent / Vibrate listen | **Not recorded.** Test exists; run it on the family phone before treating P1 as closed |
+| **P1** | Is `STREAM_ALARM` independent of ringer mode? Writing alarm index 0 must not move the ringer (the ring stream *does* couple index 0 to Vibrate). | `AlarmStreamIndependenceTest` (`adb shell cmd notification allow_dnd com.elham.priorityringer` first), plus a real Silent / Vibrate listen | **Passed on a spare motorola one action (Android 11 / SDK 30), 2026-09-17 — not the family phone.** See below |
 | **P2** | Does `MediaPlayer` keep playing after `PHONE_STATE` / `goAsync()` returns, without a foreground service? | Real incoming call (or Test Mode) in Silent, listen for the full ring, then answer/decline and confirm it stops | **Not recorded on the phone.** Measured on the API 35 emulator only — see below |
 
-A Pixel 6 AVD (API 35) was used for earlier instrumented work; that is **not**
-the family phone and is not a substitute for P1/P2.
+Neither device used so far is the family phone. A Pixel 6 AVD (API 35) covered
+the earlier instrumented work, and a spare motorola one action (Android 11)
+covered P1. **Neither is a substitute for the target device**, and the spare is
+on SDK 30, which cannot reach the Android 15 zen-rule path the app ships with.
+
+### P1 on real hardware — spare motorola one action, Android 11 (SDK 30), 2026-09-17
+
+**The first result in this project from a real phone — but a spare, not the
+family phone the app is for.** That matters in both directions, and this table
+has already warned once that a non-target device is not a substitute:
+
+- It is genuinely better than the emulator. Real OEM build, real audio HAL, real
+  `dumpsys` numbers. The `STREAM_ALARM` independence it confirms is the kind of
+  fact that is unlikely to differ across AOSP-derived devices.
+- It is still weaker than it looks. Motorola's skin sits close to AOSP; Samsung
+  One UI and Xiaomi HyperOS are where this app's audio assumptions are most
+  likely to break, and this result says nothing about them. It is also Android
+  11 (SDK 30), so it cannot exercise the Android 15 zen-rule path
+  (§ A.1) that the app actually ships with at `targetSdk 35`.
+
+**P1 is therefore evidenced, not closed.** Re-run it on the family phone.
+
+`AlarmStreamIndependenceTest`, run via `am instrument` (not Gradle — a Gradle
+run reinstalls the app and revokes Do Not Disturb access, which turns these
+assertions into silent skips). 4 tests, all executed, all passed:
+
+- `STREAM_ALARM` is not muted and its volume is unchanged by `RINGER_MODE_SILENT`.
+- The same for `RINGER_MODE_VIBRATE`.
+- Writing alarm index 0 leaves the ringer mode alone — **the alarm stream has no
+  sibling of the ring stream's index-0 coupling**, which was the open worry.
+
+Corroborated by `dumpsys audio` with the phone in Vibrate:
+`ringer mode muted streams = 0x1a6 (STREAM_SYSTEM, STREAM_RING,
+STREAM_NOTIFICATION, STREAM_SYSTEM_ENFORCED, STREAM_DTMF)` — `STREAM_ALARM`
+absent. The phone was returned to its exact starting state (Vibrate, DND off,
+alarm unmuted).
+
+**The observation log, which is the part worth reading:**
+
+```
+filter=ALL       alarmMuted=false  alarmVolume=3  allowsAlarms=true
+filter=PRIORITY  alarmMuted=false  alarmVolume=3  allowsAlarms=true
+filter=ALARMS    alarmMuted=false  alarmVolume=3  allowsAlarms=true
+filter=NONE      alarmMuted=false  alarmVolume=0  allowsAlarms=true
+```
+
+Under Total Silence this device does **not** set `isStreamMute(STREAM_ALARM)`.
+It drives the alarm volume to 0 — and `notificationPolicy` still reports
+`PRIORITY_CATEGORY_ALARMS` as allowed. So both of the obvious single checks
+would get Total Silence wrong: a mute-flag check would say audible, and a
+policy-category check would say audible.
+
+`alarmAudibility()` is right here only because it tests
+`INTERRUPTION_FILTER_NONE` first and returns `MUTED_BY_DND` before consulting
+either. That ordering is now load-bearing on real hardware, not merely tidy —
+do not reorder it.
 
 ### Emulator run, API 35, 2026-09-17 — partial P2 answer
 

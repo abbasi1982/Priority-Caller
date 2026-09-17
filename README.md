@@ -74,10 +74,13 @@ checked in at `app/schemas/…/1.json` and `…/2.json`.
 
 **Not verified — and this is the part that matters:**
 
-- **Nothing has run on real hardware.** Every green result above is an emulator
-  result. An emulator has no carrier, no OEM skin, no real SIM and no
-  manufacturer DND implementation — which is precisely where this app's
-  promises get decided.
+- **Nothing has run on the phone this app is for.** The one real-hardware result
+  is `AlarmStreamIndependenceTest` passing on a **spare** motorola one action
+  (Android 11 / SDK 30) — see `DeviceCompatibility.md` P1. That is better
+  evidence than an emulator and still not the target device: Motorola's skin
+  sits close to AOSP, where Samsung and Xiaomi are where these audio assumptions
+  most often break, and SDK 30 cannot reach the Android 15 zen-rule path the app
+  ships with. Every other green result above is an emulator result.
 - **No device matrix.** The behaviour this app exists for — Vibrate, Silent, DND
   on and off, a long answered call, and killing the process mid-ring — has not
   been exercised on real hardware, or an emulator. Those are the cases where the
@@ -92,7 +95,10 @@ checked in at `app/schemas/…/1.json` and `…/2.json`.
   `DeviceCompatibility.md`. What it does **not** settle: OEM process management,
   Doze, and Silent-mode ringer coupling, which this same emulator is already on
   record as getting differently from the target phone. `AlarmStreamIndependenceTest`
-  still has never been run anywhere.
+  has now passed on a spare Motorola (P1 evidenced, not closed), so the stream
+  the fallback depends on is confirmed independent of ringer mode *there* — but
+  no phone has ever played the alert during a real call, which is P2 and remains
+  open.
 - **No Compose UI tests.** Planned, never written, so there is nothing to run.
 - **`PhoneNumberUtils.compare` has not been probed on the target phone.**
   `PlatformNumberMatchTest` passes on the emulator, which tells you the test is
@@ -108,7 +114,9 @@ checked in at `app/schemas/…/1.json` and `…/2.json`.
   argument from reading the code; a deadlock under a real fast-answer is exactly
   the class of bug that reads fine.
 
-So: the tree builds, and 261 tests pass — 204 on the JVM, 57 on an emulator.
+So: the tree builds, and 265 tests pass — 204 on the JVM, 57 on an emulator, and
+4 on a spare Motorola (`AlarmStreamIndependenceTest`, the only tests that have
+ever run on real hardware, and not on the phone this is for).
 That moves it from "never built" to "unproven on a phone". **Do not sideload it onto a family member's
 phone** until the device matrix above has been run.
 
