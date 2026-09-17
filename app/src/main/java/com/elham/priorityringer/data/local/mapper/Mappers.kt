@@ -106,6 +106,15 @@ fun AppSettings.toEntity(): AppSettingsEntity = AppSettingsEntity(
     autoRestoreTimeoutSeconds = autoRestoreTimeoutSeconds,
     loggingEnabled = loggingEnabled,
     dndBypassStrategy = dndBypassStrategy,
+    // Carried explicitly, and it must stay that way.
+    //
+    // `SettingsRepository.update` writes through `@Upsert`, which replaces the
+    // whole row. Omitting this field here did not leave it untouched — it took
+    // the entity's `= null` default, so every settings edit silently wiped the
+    // learned audible ring level and the next Silent restore had nothing to
+    // put back. It failed honestly (restore declines on a null index and
+    // leaves the volume alone), which is exactly why nobody noticed.
+    lastAudibleRingIndex = lastAudibleRingIndex,
 )
 
 // ---------------------------------------------------------------------------
