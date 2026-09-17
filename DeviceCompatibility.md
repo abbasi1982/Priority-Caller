@@ -332,6 +332,54 @@ policy-category check would say audible.
 either. That ordering is now load-bearing on real hardware, not merely tidy —
 do not reorder it.
 
+### The alert has now made a sound on a real phone — same spare, 2026-09-17
+
+`AndroidRingtonePlayerPortTest`, 5 tests, all executed and passed (verified via
+`am instrument -r`: every case reported status code 0, not -4, so none of them
+`assumeTrue`'d out — with these tests a skip otherwise reads as a pass).
+
+Playback is verified **from outside the port**, through
+`AudioManager.getActivePlaybackConfigurations()` filtered to `USAGE_ALARM`.
+Asking the port whether it is playing would be asking the code under test to
+vouch for itself, and `MediaPlayer.isPlaying` is a transport flag that reports
+true for audio nobody can hear. `dumpsys audio` independently logged ten
+`usage=USAGE_ALARM content=CONTENT_TYPE_SONIFICATION` players created across the
+two runs, and none left alive afterwards.
+
+What is now known on real hardware:
+
+- The default ringtone URI resolves and `MediaPlayer` prepares it on this OEM build.
+- Audio really reaches `STREAM_ALARM` **while the phone is in Silent**, and the
+  device is still in Silent afterwards — the alert does not quietly switch the
+  ringer back on.
+- `stopAlarmStreamAlert()` really stops it, and is harmless twice.
+- Two starts leave exactly one player, so a second priority call replaces the
+  sound instead of layering a second ringtone over it.
+- Total Silence is predicted `MUTED_BY_DND`.
+
+**This is not P2 and must not be read as P2.** Nothing here runs from a
+broadcast; the app is in the foreground throughout; no `goAsync()` window
+closes and no process is frozen. It answers "can this phone make the sound at
+all", which had never been checked anywhere before this run.
+
+### P2 cannot run on the spare at all
+
+Two independent blockers, both recorded rather than worked around:
+
+1. **No SIM.** `gsm.sim.state = ABSENT,ABSENT`, `mVoiceRegState = OUT_OF_SERVICE`.
+   The device cannot receive a call.
+2. **`PHONE_STATE` cannot be injected.** It is a protected broadcast:
+   `SecurityException: not allowed to send broadcast android.intent.action.PHONE_STATE
+   from uid=2000`. Only the system may send it.
+
+Blocker 2 is the platform refusing, and this project does not reach past that —
+the same rule that ruled out root, hidden APIs and accessibility hacks. Blocker
+1 is fatal on its own: P2 asks what happens to playback after a real call's
+broadcast window closes, and there can be no real call here.
+
+**P2 needs the family phone**, which is also the only device that can exercise
+the Android 15 zen-rule path (§ A.1) that the spare cannot reach at SDK 30.
+
 ### Emulator run, API 35, 2026-09-17 — partial P2 answer
 
 Real `PHONE_STATE` delivery (`adb emu gsm call`), phone in Silent, DND access
